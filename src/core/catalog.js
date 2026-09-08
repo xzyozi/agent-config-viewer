@@ -4,29 +4,22 @@ export class Catalog {
         this.listProviders = listProviders;
     }
 
-    async discover(rootSelection) {
-        const providerResults = await Promise.all(
-            this.listProviders().map((provider) => this.discoverProvider(rootSelection, provider)),
-        );
-        return { providerResults, selectedProviderId: null, selectedCategory: null, noticeCode: null };
+    async discover() {
+        const providers = this.listProviders();
+        const results = await this.source.listProviderResults(providers);
+        const providerResults = providers.map((provider) => ({
+            ...results.find((result) => result.providerId === provider.id) ?? missingResult(provider.id),
+            label: provider.label,
+        }));
+        return {
+            providerResults,
+            selectedProviderId: providerResults.find((result) => result.status === "ok")?.providerId ?? providerResults[0]?.providerId ?? null,
+            selectedCategory: null,
+            noticeCode: null,
+        };
     }
+}
 
-    async discoverProvider(rootSelection, provider) {
-        try {
-            const detection = await this.source.probe(rootSelection, provider);
-            if (!detection.found) {
-                return this.result(provider.id, "not_found");
-            }
-            const fileEntries = await this.source.listFiles(rootSelection, provider);
-            return { providerId: provider.id, status: "ok", fileEntries, errorKind: null };
-        } catch (error) {
-            const status = error.name === "NotAllowedError" || error.name === "SecurityError"
-                ? "permission_denied" : "list_failed";
-            return this.result(provider.id, status);
-        }
-    }
-
-    result(providerId, status) {
-        return { providerId, status, fileEntries: [], errorKind: status };
-    }
+function missingResult(providerId) {
+    return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" };
 }
