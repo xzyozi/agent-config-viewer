@@ -15,11 +15,16 @@ export class Catalog {
             providerResults,
             selectedProviderId: providerResults.find((result) => result.status === "ok")?.providerId ?? providerResults[0]?.providerId ?? null,
             selectedCategory: null,
+            selectedFileId: null,
+            preview: null,
             noticeCode: null,
         };
     }
+
+    async readText(fileEntry) {
+        if (!fileEntry.readable) throw { code: fileEntry.unreadableReason ?? "read_failed" };
+        return this.source.readText(fileEntry.id);
+    }
 }
 
-function missingResult(providerId) {
-    return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" };
-}
+function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" }; }
