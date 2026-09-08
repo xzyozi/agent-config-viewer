@@ -1,7 +1,7 @@
 ---
 title: "agent-config-viewer 画面内データ構造仕様書"
 document_type: "data_structure_specification"
-version: "1.1"
+version: "1.2"
 created_at: "2026-09-08"
 updated_at: "2026-09-08"
 author: "xzyozi"
@@ -18,7 +18,7 @@ related_documents:
 | :------------- | :----------------------------------------- |
 | 文書番号       | ACV-DS-001                                 |
 | ドキュメント名 | agent-config-viewer 画面内データ構造仕様書 |
-| 版数           | Rev.1.1（レビュー反映）                    |
+| 版数           | Rev.1.2（実装前設計確定）                  |
 | 改訂日         | 2026-09-08                                 |
 | 作成日         | 2026-09-08                                 |
 | 作成者         | xzyozi                                     |
@@ -71,6 +71,15 @@ classDiagram
         providerResults
         selectedProviderId
         selectedCategory
+        noticeCode
+    }
+    class ErrorDto {
+        code
+        scope
+        retryable
+        recoveryAction
+        messageKey
+        fileId
     }
     class ViewState {
         selectedFileId
@@ -83,6 +92,7 @@ classDiagram
     ProviderResult "1" --> "*" FileEntry
     BrowseState "1" --> "*" ProviderResult
     ViewState "0..1" --> "1" FileEntry
+    ViewState "0..1" --> "1" ErrorDto
 ```
 
 ### 2.2 ProviderSpec
@@ -118,25 +128,37 @@ classDiagram
 `Read Failed` は `readText` の実行後に判明する失敗であるため、`FileEntry.unreadableReason` には含めない。`ViewState.error` の Error DTO として扱う。
 
 ### 2.5 ProviderResult
-| フィールド    | データ型       | 必須性 | 制約                                                                    |
-| :------------ | :------------- | :----: | :---------------------------------------------------------------------- |
-| `providerId`  | 文字列         |  必須  | 登録済みProviderを参照                                                  |
-| `status`      | 列挙値         |  必須  | `ok`、`not_found`、`permission_denied`、`list_failed`                   |
-| `fileEntries` | FileEntry配列  |  必須  | `status` が `ok` の場合に対象ファイルを保持。その他は空配列             |
-| `errorKind`   | 列挙値または空 |  必須  | `status` が `ok` 以外の場合のUI表示用分類。例外本文・絶対パスを含めない |
+| フィールド    | データ型       | 必須性 | 制約                                                                        |
+| :------------ | :------------- | :----: | :-------------------------------------------------------------------------- |
+| `providerId`  | 文字列         |  必須  | 登録済みProviderを参照                                                      |
+| `status`      | 列挙値         |  必須  | `ok`、`not_found`、`permission_denied`、`list_failed`                       |
+| `fileEntries` | FileEntry配列  |  必須  | `status` が `ok` の場合に対象ファイルを保持。その他は空配列                 |
+| `errorKind`   | 列挙値または空 |  必須  | `not_found`、`permission_denied`、`list_failed` のいずれか。`ok` の場合は空 |
 
-### 2.6 BrowseStateおよびViewState
-`BrowseState` はProviderごとの `ProviderResult` を保持する。Provider単位の失敗は一覧画面内で表示し、全Providerの結果を破棄しない。トップレベルの `error` 状態は、Root Selectionの喪失などアプリケーション全体を継続できない失敗だけに使用する。
+### 2.6 Error DTO
+| フィールド       | データ型       | 必須性 | 制約                                                                |
+| :--------------- | :------------- | :----: | :------------------------------------------------------------------ |
+| `code`           | 列挙値         |  必須  | `unsupported_browser`、`read_failed`、`render_failed`、`unexpected` |
+| `scope`          | 列挙値         |  必須  | `application` または `file`                                         |
+| `retryable`      | 真偽値         |  必須  | ユーザー操作による再試行可否                                        |
+| `recoveryAction` | 列挙値         |  必須  | `select_root`、`retry_read`、`return_to_browse`、`none`             |
+| `messageKey`     | 文字列         |  必須  | 固定UI文言の識別子。例外本文を含めない                              |
+| `fileId`         | 文字列または空 |  必須  | `scope` が `file` の場合だけ対象File Entryを参照                    |
 
-| 状態          | 主なフィールド               | 用途                                         |
-| :------------ | :--------------------------- | :------------------------------------------- |
-| `idle`        | なし                         | 起動直後                                     |
-| `pickingRoot` | 操作中フラグ                 | フォルダ選択ダイアログの起動中               |
-| `scanning`    | Root Selection、Provider一覧 | Provider検出・ファイル走査中                 |
-| `browsing`    | BrowseState                  | Providerごとの成功・部分失敗を含む一覧表示   |
-| `reading`     | selectedFileId               | 読取可能なファイル本文を読込中               |
-| `rendered`    | ViewState                    | 安全な内容表示が完了                         |
-| `error`       | Error DTO                    | アプリケーション全体の回復可能なエラーを表示 |
+### 2.7 BrowseStateおよびViewState
+`BrowseState` はProviderごとの `ProviderResult` と、Root Selection喪失を案内する任意の `noticeCode` を保持する。Provider単位の失敗は一覧画面内で表示し、全Providerの結果を破棄しない。トップレベルの `error` 状態は、ブラウザ非対応や回復不能な初期化失敗など、アプリケーションを継続できない失敗だけに使用する。
+
+Root Selectionが画面再読込・直接URL入力・タブ復元で失われた場合は、Error DTOを生成しない。状態を破棄して `#/browse` へ戻し、`noticeCode` を `root_selection_required` としてユーザーに再選択を案内する。
+
+| 状態          | 主なフィールド               | 用途                                                         |
+| :------------ | :--------------------------- | :----------------------------------------------------------- |
+| `idle`        | なし                         | 起動直後                                                     |
+| `pickingRoot` | 操作中フラグ                 | フォルダ選択ダイアログの起動中                               |
+| `scanning`    | Root Selection、Provider一覧 | Provider検出・ファイル走査中                                 |
+| `browsing`    | BrowseState                  | Providerごとの成功・部分失敗、または再選択案内を含む一覧表示 |
+| `reading`     | selectedFileId               | 読取可能なファイル本文を読込中                               |
+| `rendered`    | ViewState                    | 安全な内容表示が完了                                         |
+| `error`       | Error DTO                    | ブラウザ非対応または回復不能な初期化失敗を表示               |
 
 ## 3. データ生命周期
 ### 3.1 生命周期規則
@@ -158,7 +180,8 @@ classDiagram
 - 将来、検索インデックスや閲覧履歴を追加する場合は、保存範囲・保持期間・消去操作を定義するデータ構造仕様書を別途作成する。
 
 ## 5. 改訂履歴
-| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                                       |
-| :------ | :--------- | :----- | :--------------------------------------------------------------------------------------- |
-| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。画面内DTO、状態遷移、非永続化方針を定義。                                      |
-| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。ProviderResultとunreadableReasonを追加し、部分失敗を表現可能にした。 |
+| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                                                |
+| :------ | :--------- | :----- | :------------------------------------------------------------------------------------------------ |
+| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。画面内DTO、状態遷移、非永続化方針を定義。                                               |
+| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。ProviderResultとunreadableReasonを追加し、部分失敗を表現可能にした。          |
+| Rev.1.2 | 2026-09-08 | xzyozi | 実装前設計を確定。Error DTO、ProviderResultの失敗分類、Root Selection喪失時のBrowse Stateを定義。 |

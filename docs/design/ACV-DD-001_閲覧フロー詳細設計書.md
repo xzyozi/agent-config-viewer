@@ -1,7 +1,7 @@
 ---
 title: "agent-config-viewer 閲覧フロー詳細設計書"
 document_type: "detailed_design"
-version: "1.1"
+version: "1.2"
 created_at: "2026-09-08"
 updated_at: "2026-09-08"
 author: "xzyozi"
@@ -18,7 +18,7 @@ related_documents:
 | :------------- | :--------------------------------------- |
 | 文書番号       | ACV-DD-001                               |
 | ドキュメント名 | agent-config-viewer 閲覧フロー詳細設計書 |
-| 版数           | Rev.1.1（レビュー反映）                  |
+| 版数           | Rev.1.2（実装前設計確定）                |
 | 改訂日         | 2026-09-08                               |
 | 作成日         | 2026-09-08                               |
 | 作成者         | xzyozi                                   |
@@ -30,23 +30,35 @@ related_documents:
 ### 1.2 Provider ModuleのInterface
 Providerはエージェント固有の構造差を吸収するModuleである。Providerが持つ情報は宣言的な設定だけとし、ファイルシステムの読込処理は行わない。
 
-| フィールド            | 型     | 必須  | 制約・説明                                      |
-| :-------------------- | :----- | :---: | :---------------------------------------------- |
-| `id`                  | 文字列 | 必須  | 英小文字・数字・ハイフン。例: `kiro`            |
-| `label`               | 文字列 | 必須  | UI表示名。例: `Kiro`                            |
-| `rootDir`             | 文字列 | 必須  | 選択ルートからの相対ディレクトリ名。`..` を禁止 |
-| `categories`          | 配列   | 必須  | 閲覧対象カテゴリの配列                          |
-| `categories.name`     | 文字列 | 必須  | UI表示カテゴリ名                                |
-| `categories.path`     | 文字列 | 必須  | Provider rootからの相対パス。`..` を禁止        |
-| `categories.patterns` | 配列   | 必須  | 許可する拡張子・ファイル名パターン              |
+| フィールド                | 型               | 必須  | 制約・説明                                                      |
+| :------------------------ | :--------------- | :---: | :-------------------------------------------------------------- |
+| `id`                      | 文字列           | 必須  | 英小文字・数字・ハイフン。例: `kiro`                            |
+| `label`                   | 文字列           | 必須  | UI表示名。例: `Kiro`                                            |
+| `rootDir`                 | 文字列           | 必須  | 選択ルートからの相対ディレクトリ名。`..` を禁止                 |
+| `categories`              | CategorySpec配列 | 必須  | 閲覧対象カテゴリの配列。1件以上                                 |
+| `categories.name`         | 文字列           | 必須  | UI表示カテゴリ名                                                |
+| `categories.path`         | 文字列           | 必須  | Provider rootからの相対パス。`.` または `..` を含まない相対パス |
+| `categories.patterns`     | 文字列配列       | 必須  | 許可するファイル名・拡張子パターン。1件以上                     |
+| `categories.displayOrder` | 数値             | 必須  | 同一Provider内の昇順表示用の非負整数                            |
+| `enabled`                 | 真偽値           | 必須  | 初期値は真。偽のProviderは検出・一覧生成を行わない              |
 
-初期Providerの対象例は以下とする。Claude・Geminiの具体的なパスは、対象ツールの実際の設定構造に合わせてProviderだけで更新できるようにする。
+初期Providerは以下の確認済みプロジェクト内パスだけを対象とする。`CLAUDE.md` と `GEMINI.md` はプロジェクトルートに置かれるため、初期版のProvider root外として対象に含めない。Claudeの `settings.local.json` は個人用設定を含み得るため、初期版では一覧対象外とする。
 
-| Provider | rootDir   | 初期カテゴリ                          |
-| :------- | :-------- | :------------------------------------ |
-| Kiro     | `.kiro`   | Steering、Skills、Knowledge           |
-| Claude   | `.claude` | Settings、Commands、Skills、Documents |
-| Gemini   | `.gemini` | Settings、Commands、Skills、Documents |
+| Provider | カテゴリ  | path        | patterns        |
+| :------- | :-------- | :---------- | :-------------- |
+| Kiro     | Steering  | `steering`  | `**/*.md`       |
+| Kiro     | Skills    | `skills`    | `**/SKILL.md`   |
+| Kiro     | Knowledge | `knowledge` | `**/*.md`       |
+| Claude   | Settings  | `.`         | `settings.json` |
+| Claude   | Rules     | `rules`     | `**/*.md`       |
+| Claude   | Skills    | `skills`    | `**/SKILL.md`   |
+| Claude   | Commands  | `commands`  | `**/*.md`       |
+| Claude   | Agents    | `agents`    | `**/*.md`       |
+| Gemini   | Settings  | `.`         | `settings.json` |
+| Gemini   | Commands  | `commands`  | `**/*.toml`     |
+| Gemini   | Skills    | `skills`    | `**/SKILL.md`   |
+
+`Knowledge` は本プロジェクトで採用するKiro拡張カテゴリである。その他のカテゴリは、実装時にProvider Moduleだけを変更して追加する。配置根拠は [Kiro Steering](https://kiro.dev/docs/steering/)、[Kiro Skills](https://kiro.dev/docs/skills/)、[Claude Code directory](https://code.claude.com/docs/en/claude-directory)、[Gemini CLI settings](https://geminicli.com/docs/cli/settings/)、[Gemini CLI commands](https://geminicli.com/docs/cli/custom-commands/)、[Gemini CLI skills](https://geminicli.com/docs/cli/skills/) に基づく。
 
 ### 1.3 DirectorySource Interface
 | 操作        | 入力                     | 出力               | 事前条件                                      | 事後条件                                      |
@@ -58,6 +70,18 @@ Providerはエージェント固有の構造差を吸収するModuleである。
 | `clear`     | Root Selection           | なし               | Root Selectionが存在する                      | Adapterが保持するRoot Selectionだけを破棄する |
 
 `DirectorySource` の呼び出し側は、File System Access APIまたはフォールバック方式を意識しない。ブラウザAPIの差異はAdapterのImplementationに隠蔽する。画面内状態の破棄は `AppShell` とView Moduleの責務とする。
+
+### 1.4 Error DTO
+Error DTOは、Provider単位の失敗ではなく、ファイル読取・レンダリング・アプリケーション初期化の失敗をViewへ渡すDTOである。例外本文、絶対パス、ファイル本文を含めない。
+
+| フィールド       | 型             | 必須  | 制約                                                                |
+| :--------------- | :------------- | :---: | :------------------------------------------------------------------ |
+| `code`           | 列挙値         | 必須  | `unsupported_browser`、`read_failed`、`render_failed`、`unexpected` |
+| `scope`          | 列挙値         | 必須  | `application` または `file`                                         |
+| `retryable`      | 真偽値         | 必須  | ユーザー操作による再試行可否                                        |
+| `recoveryAction` | 列挙値         | 必須  | `select_root`、`retry_read`、`return_to_browse`、`none`             |
+| `messageKey`     | 文字列         | 必須  | UIの固定文言を選ぶ識別子。例外本文は格納しない                      |
+| `fileId`         | 文字列または空 | 必須  | `scope` が `file` の場合だけ対象File Entryを参照                    |
 
 ## 2. 処理フロー
 ### 2.1 フォルダ選択・一覧表示シーケンス
@@ -111,13 +135,13 @@ sequenceDiagram
 ```
 
 ### 2.3 画面遷移規則
-| ルート             | 表示                             | 必須状態                   | 状態不足時の挙動             |
-| :----------------- | :------------------------------- | :------------------------- | :--------------------------- |
-| `#/browse`         | Provider・カテゴリ・ファイル一覧 | Root Selectionは任意       | 未選択ならフォルダ選択を促す |
-| `#/view/<file-id>` | ファイル内容                     | Root Selection、File Entry | 一覧へ戻し、再選択を促す     |
-| `#/error`          | 回復可能なエラー                 | Error DTO                  | エラー概要と復帰操作を表示   |
+| ルート             | 表示                             | 必須状態                   | 状態不足時の挙動                                                                       |
+| :----------------- | :------------------------------- | :------------------------- | :------------------------------------------------------------------------------------- |
+| `#/browse`         | Provider・カテゴリ・ファイル一覧 | Root Selectionは任意       | 未選択または喪失時は `noticeCode=root_selection_required` を表示してフォルダ選択を促す |
+| `#/view/<file-id>` | ファイル内容                     | Root Selection、File Entry | Root SelectionまたはFile Entryがなければ状態を破棄し `#/browse` へ戻る                 |
+| `#/error`          | 回復不能な初期化エラー           | Error DTO                  | エラー概要と復帰操作を表示する                                                         |
 
-ブラウザの再読み込み、直接URL入力、またはタブ復元でRoot Selectionが失われた場合、アプリケーションはファイルを再読込しない。`#/browse` に遷移し、ユーザーへ再選択を求める。
+ブラウザの再読み込み、直接URL入力、またはタブ復元でRoot Selectionが失われた場合、アプリケーションはファイルを再読込せず、Error DTOも生成しない。`#/browse` に遷移し、`noticeCode=root_selection_required` によりユーザーへ再選択を求める。
 
 ## 3. MarkdownRenderer仕様
 ### 3.1 入力・出力
@@ -157,7 +181,8 @@ sequenceDiagram
 - ドキュメントへMermaid図を保存する場合は、リポジトリ既存のMermaid CIで構文検証する。
 
 ## 6. 改訂履歴
-| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                                          |
-| :------ | :--------- | :----- | :------------------------------------------------------------------------------------------ |
-| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。閲覧フロー、Provider Interface、読取・表示の失敗契約を定義。                      |
-| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。Provider検出順序、読取ガード、部分失敗およびAdapterの破棄責務を明確化。 |
+| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                                                |
+| :------ | :--------- | :----- | :------------------------------------------------------------------------------------------------ |
+| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。閲覧フロー、Provider Interface、読取・表示の失敗契約を定義。                            |
+| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。Provider検出順序、読取ガード、部分失敗およびAdapterの破棄責務を明確化。       |
+| Rev.1.2 | 2026-09-08 | xzyozi | 実装前設計を確定。Providerの対象パス・許可パターン、Error DTO、Root Selection喪失時の遷移を定義。 |
