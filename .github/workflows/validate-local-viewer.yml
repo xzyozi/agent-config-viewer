@@ -1,0 +1,67 @@
+name: Validate local viewer
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "server.py"
+      - "cli.py"
+      - "index.html"
+      - "src/**/*.js"
+      - ".github/workflows/validate-local-viewer.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "server.py"
+      - "cli.py"
+      - "index.html"
+      - "src/**/*.js"
+      - ".github/workflows/validate-local-viewer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-local-viewer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12.8
+
+      - name: Compile Python entry points
+        shell: bash
+        run: python -m py_compile server.py cli.py
+
+      - name: Run CLI with an empty home directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          empty_home="$RUNNER_TEMP/agent-config-viewer-empty-home"
+          mkdir -p "$empty_home"
+          HOME="$empty_home" python cli.py list --json > "$RUNNER_TEMP/catalog.json"
+          python - "$RUNNER_TEMP/catalog.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as catalog_file:
+              results = json.load(catalog_file)["providerResults"]
+
+          assert [result["providerId"] for result in results] == ["kiro", "claude", "gemini", "codex"]
+          assert all(result["status"] == "not_found" for result in results)
+          assert all(not result["fileEntries"] for result in results)
+          PY
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+
+      - name: Check ES module syntax
+        shell: bash
+        run: find src -type f -name "*.js" -print0 | xargs -0 -r -n1 node --check
