@@ -1,188 +1,78 @@
 ---
 title: "agent-config-viewer 閲覧フロー詳細設計書"
 document_type: "detailed_design"
-version: "1.2"
+version: "2.0"
 created_at: "2026-09-08"
 updated_at: "2026-09-08"
 author: "xzyozi"
-purpose: "フォルダ選択、Provider検出、対象ファイル走査、Markdown表示、および失敗時の挙動を定義する。"
+purpose: "ローカルサーバーによるProviderカタログ生成、本文取得、失敗契約の制御仕様を定義する。"
 related_documents:
   - "ACV-BD-001_基本設計書.md"
   - "ACV-DS-001_画面内データ構造仕様書.md"
 ---
-
 # 詳細設計書（閲覧フロー・Module制御仕様）
-**フォルダ選択から安全なファイル表示までの制御仕様**
-
-| 項目           | 内容                                     |
-| :------------- | :--------------------------------------- |
-| 文書番号       | ACV-DD-001                               |
-| ドキュメント名 | agent-config-viewer 閲覧フロー詳細設計書 |
-| 版数           | Rev.1.2（実装前設計確定）                |
-| 改訂日         | 2026-09-08                               |
-| 作成日         | 2026-09-08                               |
-| 作成者         | xzyozi                                   |
-
-## 1. 概要とSSOT境界
-### 1.1 Moduleの目的
-本書は、閲覧フローの呼び出し順序、Module Interface、状態遷移、エラー契約の正本とする。表示用DTOは本書、画面内状態のデータ構造はデータ構造仕様書を正本とする。
-
-### 1.2 Provider ModuleのInterface
-Providerはエージェント固有の構造差を吸収するModuleである。Providerが持つ情報は宣言的な設定だけとし、ファイルシステムの読込処理は行わない。
-
-| フィールド                | 型               | 必須  | 制約・説明                                                      |
-| :------------------------ | :--------------- | :---: | :-------------------------------------------------------------- |
-| `id`                      | 文字列           | 必須  | 英小文字・数字・ハイフン。例: `kiro`                            |
-| `label`                   | 文字列           | 必須  | UI表示名。例: `Kiro`                                            |
-| `rootDir`                 | 文字列           | 必須  | 選択ルートからの相対ディレクトリ名。`..` を禁止                 |
-| `categories`              | CategorySpec配列 | 必須  | 閲覧対象カテゴリの配列。1件以上                                 |
-| `categories.name`         | 文字列           | 必須  | UI表示カテゴリ名                                                |
-| `categories.path`         | 文字列           | 必須  | Provider rootからの相対パス。`.` または `..` を含まない相対パス |
-| `categories.patterns`     | 文字列配列       | 必須  | 許可するファイル名・拡張子パターン。1件以上                     |
-| `categories.displayOrder` | 数値             | 必須  | 同一Provider内の昇順表示用の非負整数                            |
-| `enabled`                 | 真偽値           | 必須  | 初期値は真。偽のProviderは検出・一覧生成を行わない              |
-
-初期Providerは以下の確認済みプロジェクト内パスだけを対象とする。`CLAUDE.md` と `GEMINI.md` はプロジェクトルートに置かれるため、初期版のProvider root外として対象に含めない。Claudeの `settings.local.json` は個人用設定を含み得るため、初期版では一覧対象外とする。
-
-| Provider | カテゴリ  | path        | patterns        |
-| :------- | :-------- | :---------- | :-------------- |
-| Kiro     | Steering  | `steering`  | `**/*.md`       |
-| Kiro     | Skills    | `skills`    | `**/SKILL.md`   |
-| Kiro     | Knowledge | `knowledge` | `**/*.md`       |
-| Claude   | Settings  | `.`         | `settings.json` |
-| Claude   | Rules     | `rules`     | `**/*.md`       |
-| Claude   | Skills    | `skills`    | `**/SKILL.md`   |
-| Claude   | Commands  | `commands`  | `**/*.md`       |
-| Claude   | Agents    | `agents`    | `**/*.md`       |
-| Gemini   | Settings  | `.`         | `settings.json` |
-| Gemini   | Commands  | `commands`  | `**/*.toml`     |
-| Gemini   | Skills    | `skills`    | `**/SKILL.md`   |
-
-`Knowledge` は本プロジェクトで採用するKiro拡張カテゴリである。その他のカテゴリは、実装時にProvider Moduleだけを変更して追加する。配置根拠は [Kiro Steering](https://kiro.dev/docs/steering/)、[Kiro Skills](https://kiro.dev/docs/skills/)、[Claude Code directory](https://code.claude.com/docs/en/claude-directory)、[Gemini CLI settings](https://geminicli.com/docs/cli/settings/)、[Gemini CLI commands](https://geminicli.com/docs/cli/custom-commands/)、[Gemini CLI skills](https://geminicli.com/docs/cli/skills/) に基づく。
-
-### 1.3 DirectorySource Interface
-| 操作        | 入力                     | 出力               | 事前条件                                      | 事後条件                                      |
-| :---------- | :----------------------- | :----------------- | :-------------------------------------------- | :-------------------------------------------- |
-| `pickRoot`  | ユーザー操作             | Root Selection     | ブラウザが対応している                        | 選択されたルートのみアクセス可能              |
-| `probe`     | Root Selection、Provider | Provider Detection | ルート選択済み                                | Provider rootの有無または失敗理由を返す       |
-| `listFiles` | Root Selection、Provider | File Entry配列     | Provider検出済み                              | 許可カテゴリ・許可パターンだけを返す          |
-| `readText`  | File Entry               | Text Content       | `readable` が真、サイズ上限以下、テキスト形式 | 読取専用で本文を返す                          |
-| `clear`     | Root Selection           | なし               | Root Selectionが存在する                      | Adapterが保持するRoot Selectionだけを破棄する |
-
-`DirectorySource` の呼び出し側は、File System Access APIまたはフォールバック方式を意識しない。ブラウザAPIの差異はAdapterのImplementationに隠蔽する。画面内状態の破棄は `AppShell` とView Moduleの責務とする。
-
-### 1.4 Error DTO
-Error DTOは、Provider単位の失敗ではなく、ファイル読取・レンダリング・アプリケーション初期化の失敗をViewへ渡すDTOである。例外本文、絶対パス、ファイル本文を含めない。
-
-| フィールド       | 型             | 必須  | 制約                                                                |
-| :--------------- | :------------- | :---: | :------------------------------------------------------------------ |
-| `code`           | 列挙値         | 必須  | `unsupported_browser`、`read_failed`、`render_failed`、`unexpected` |
-| `scope`          | 列挙値         | 必須  | `application` または `file`                                         |
-| `retryable`      | 真偽値         | 必須  | ユーザー操作による再試行可否                                        |
-| `recoveryAction` | 列挙値         | 必須  | `select_root`、`retry_read`、`return_to_browse`、`none`             |
-| `messageKey`     | 文字列         | 必須  | UIの固定文言を選ぶ識別子。例外本文は格納しない                      |
-| `fileId`         | 文字列または空 | 必須  | `scope` が `file` の場合だけ対象File Entryを参照                    |
-
-## 2. 処理フロー
-### 2.1 フォルダ選択・一覧表示シーケンス
+| 項目     | 内容                             |
+| :------- | :------------------------------- |
+| 文書番号 | ACV-DD-001                       |
+| 版数     | Rev.2.0（ローカルAPI方式へ更新） |
+| 改訂日   | 2026-09-08                       |
+## 1. Providerカタログ
+`server.py` の `PROVIDERS` がProvider ID、表示名、ホーム配下root、カテゴリを宣言する。カテゴリはカテゴリ名、`scope`（`provider` または `home`）、相対パス、許可パターンから成る。実装はKiro、Claude、Gemini、Codexを固定順で走査し、Provider rootがない場合も他Providerの結果を維持する。
+| Provider | root      | 特記事項                                                         |
+| :------- | :-------- | :--------------------------------------------------------------- |
+| Kiro     | `.kiro`   | Steering、Skills、Knowledgeを対象                                |
+| Claude   | `.claude` | ホーム直下の`CLAUDE.md`も対象。`settings.local.json`は対象外     |
+| Gemini   | `.gemini` | ホーム直下の`GEMINI.md`も対象                                    |
+| Codex    | `.codex`  | `config.toml`と`*.config.toml`のみ。認証情報・履歴・ログは対象外 |
+## 2. HTTP Interface
+| 操作         | URL                                | 成功応答                                     | 失敗応答                                                            |
+| :----------- | :--------------------------------- | :------------------------------------------- | :------------------------------------------------------------------ |
+| カタログ取得 | `GET /api/catalog`                 | `{"providerResults": ProviderResult[]}`      | HTTP 500相当のサーバー失敗                                          |
+| 本文取得     | `GET /api/files/<file-id>/content` | `{"fileId": "...", "content": "UTF-8 text"}` | `too_large`: HTTP 413、その他: HTTP 404かつ`{"code":"read_failed"}` |
+`LocalConfigSource` はカタログをページ表示中だけキャッシュし、API応答のProvider IDと本文のFile IDを検証する。URLには不透明File IDを `encodeURIComponent` して渡すだけで、相対・絶対パスを受け渡さない。
+## 3. 処理フロー
 ```mermaid
 sequenceDiagram
     autonumber
-    participant User
+    participant Browser
     participant App as AppShell
-    participant Source as DirectorySource
     participant Catalog
-    participant Provider as ProviderRegistry
-    participant View as BrowserView
-    User->>App: Select folder
-    App->>Source: pickRoot
-    Source-->>App: Root Selection
-    App->>Catalog: discover Root Selection
-    Catalog->>Provider: List providers
-    Provider-->>Catalog: Provider definitions
-    Catalog->>Source: Probe each provider
-    Source-->>Catalog: Provider Detection results
-    Catalog->>Source: List files for detected providers
-    Source-->>Catalog: File Entries
-    Catalog-->>App: Browse DTO with Provider Results
-    App->>View: Render browse state
-    View-->>User: Agent and file list
+    participant Source as LocalConfigSource
+    participant Server as server.py
+    Browser->>App: start
+    App->>Catalog: discover
+    Catalog->>Source: listProviderResults
+    Source->>Server: GET /api/catalog
+    Server->>Server: allowlist scan and File ID issue
+    Server-->>Source: ProviderResult array
+    Source-->>Catalog: ordered results
+    Catalog-->>App: BrowseState
+    App-->>Browser: Provider tabs and file list
+    Browser->>App: selectFile(fileId)
+    App->>Catalog: readText(FileEntry)
+    Catalog->>Source: readText(fileId)
+    Source->>Server: GET content by File ID
+    Server-->>Source: UTF-8 text or fixed error code
+    App-->>Browser: pre textContent or fixed message
 ```
-
-### 2.2 ファイル表示シーケンス
-```mermaid
-sequenceDiagram
-    autonumber
-    participant User
-    participant View as ViewerView
-    participant App as AppShell
-    participant Source as DirectorySource
-    participant Renderer as MarkdownRenderer
-    User->>View: Select file
-    View->>App: Request preview
-    App->>App: Check readable kind and sizeBytes
-    alt Readable
-        App->>Source: readText
-        Source-->>App: Text Content
-        App->>Renderer: Render by file kind
-        Renderer-->>App: Sanitized Render Result
-        App->>View: Render result
-        View-->>User: Safe preview
-    else Not readable
-        App->>View: Render unavailable reason
-        View-->>User: Unavailable message
-    end
-```
-
-### 2.3 画面遷移規則
-| ルート             | 表示                             | 必須状態                   | 状態不足時の挙動                                                                       |
-| :----------------- | :------------------------------- | :------------------------- | :------------------------------------------------------------------------------------- |
-| `#/browse`         | Provider・カテゴリ・ファイル一覧 | Root Selectionは任意       | 未選択または喪失時は `noticeCode=root_selection_required` を表示してフォルダ選択を促す |
-| `#/view/<file-id>` | ファイル内容                     | Root Selection、File Entry | Root SelectionまたはFile Entryがなければ状態を破棄し `#/browse` へ戻る                 |
-| `#/error`          | 回復不能な初期化エラー           | Error DTO                  | エラー概要と復帰操作を表示する                                                         |
-
-ブラウザの再読み込み、直接URL入力、またはタブ復元でRoot Selectionが失われた場合、アプリケーションはファイルを再読込せず、Error DTOも生成しない。`#/browse` に遷移し、`noticeCode=root_selection_required` によりユーザーへ再選択を求める。
-
-## 3. MarkdownRenderer仕様
-### 3.1 入力・出力
-| 項目           | 内容                                                                |
-| :------------- | :------------------------------------------------------------------ |
-| 入力           | テキスト本文、ファイル種別、表示オプション                          |
-| Markdown入力   | MarkdownパーサによりHTMLへ変換する                                  |
-| Markdown安全化 | 生HTMLを無効化し、DOMPurifyでサニタイズする                         |
-| 非Markdown入力 | HTMLへ変換せず、エスケープ済みテキストとしてコード表示する          |
-| 出力           | 表示用HTMLまたは安全なテキスト表示DTO                               |
-| 禁止事項       | 外部スクリプト実行、イベント属性、危険なURIスキーム、埋込コンテンツ |
-
-### 3.2 Markdown表示の追加制約
-- リンクは表示できるが、閲覧アプリケーションから自動的に開かない。
-- 外部画像・埋込コンテンツは初期版では読み込まない。
-- HTMLとして解釈される属性、`script`、イベントハンドラ、危険なURIスキームは削除する。
-- 変換済みHTMLは、サニタイズ済みであることを示す内部DTOを経由してのみ表示領域へ渡す。
-
-## 4. エラー処理・失敗契約
-| エラー分類          | 判定基準                  |       再試行       | 終端状態                     | 保持契約                     |
-| :------------------ | :------------------------ | :----------------: | :--------------------------- | :--------------------------- |
-| Browser Unsupported | 必要なAPIが利用不可       |        なし        | Fallback提示                 | ファイル内容を保存しない     |
-| User Cancelled      | フォルダ選択をキャンセル  |        任意        | Browse表示                   | 既存表示を維持               |
-| Provider Not Found  | Provider rootが存在しない |        なし        | Provider Result: `not_found` | 他Providerの結果は維持       |
-| Permission Denied   | ブラウザの読取許可がない  | ユーザー操作時のみ | 再選択案内                   | 権限昇格を自動実行しない     |
-| File Too Large      | 規定サイズ超過            |        なし        | サイズ超過表示               | 本文を読まない               |
-| Unsupported File    | 許可外形式・バイナリ      |        なし        | 非対応表示                   | 本文を読まない               |
-| Read Failed         | 読取途中の例外・削除      | ユーザー操作時のみ | 再読込案内                   | 内容をキャッシュしない       |
-| Render Failed       | パース・サニタイズ失敗    |        なし        | テキスト表示へ退避           | 元本文をHTMLとして挿入しない |
-
-## 5. テスト・検証要件
-- Providerごとに、許可カテゴリ外のファイルを一覧に含めないことを検証する。
-- `DirectorySource` は `FakeDirectorySource` で正常系・権限拒否・欠損ファイル・巨大ファイルを検証できること。
-- Markdown内のスクリプト、イベント属性、危険なリンクが表示DOMに残らないことを検証する。
-- JSONなどの非MarkdownがHTMLとして実行・解釈されないことを検証する。
-- Chromium系の標準Adapterと、`webkitdirectory` フォールバックの両方で最小閲覧フローを確認する。
-- ドキュメントへMermaid図を保存する場合は、リポジトリ既存のMermaid CIで構文検証する。
-
+`AppShell` はファイル選択時に`reading`状態を描画し、応答時点で選択File IDが変わっていれば古い結果を破棄する。Provider切替は選択済みファイルとプレビューを破棄する。
+## 4. 読取ガードと失敗契約
+`Catalog.readText` は `FileEntry.readable` が偽ならHTTP呼出しを行わない。サーバーは本文読取直前に、ID形式とメモリ上の対応、リンク非該当、通常ファイル、許可root内、2MiB以下を再検証し、最大2MiB+1バイトだけ読む。
+| 分類                        | 表現                                        | UI動作                             |
+| :-------------------------- | :------------------------------------------ | :--------------------------------- |
+| Provider未検出              | `not_found`                                 | Providerタブ内の固定メッセージ     |
+| Provider権限拒否            | `permission_denied`                         | Providerタブ内の固定メッセージ     |
+| Provider一覧失敗            | `list_failed`                               | Providerタブ内の固定メッセージ     |
+| サイズ超過                  | `unreadableReason=too_large` またはHTTP 413 | 本文を表示しない                   |
+| 読取失敗・偽造ID・UTF-8失敗 | `read_failed`                               | 本文・絶対パス・例外詳細を出さない |
+| カタログ取得失敗            | UIの`unexpected`                            | `server.py` の起動確認を案内       |
+Markdown、JSON、TOMLを含む本文はすべてプレーンテキストで表示する。HTML変換、Markdown parser、DOMPurifyは未導入であり、将来追加時は別設計とする。
+## 5. 検証方針
+Python構文、空HOMEでのCLIカタログ、ES Module構文は既存のローカルビューアCIで検証する。本文APIはローカルの一時HOMEによるスモーク検証で、IDの非漏えい、UTF-8本文、サイズ超過、偽造ID拒否を確認する。Docs PRのMermaid図は既存のMermaid CIで検証する。
 ## 6. 改訂履歴
-| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                                                |
-| :------ | :--------- | :----- | :------------------------------------------------------------------------------------------------ |
-| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。閲覧フロー、Provider Interface、読取・表示の失敗契約を定義。                            |
-| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。Provider検出順序、読取ガード、部分失敗およびAdapterの破棄責務を明確化。       |
-| Rev.1.2 | 2026-09-08 | xzyozi | 実装前設計を確定。Providerの対象パス・許可パターン、Error DTO、Root Selection喪失時の遷移を定義。 |
+| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                        |
+| :------ | :--------- | :----- | :------------------------------------------------------------------------ |
+| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。                                                                |
+| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。                                                      |
+| Rev.1.2 | 2026-09-08 | xzyozi | 実装前設計を確定。                                                        |
+| Rev.2.0 | 2026-09-08 | xzyozi | ローカルAPI、Provider範囲、不透明ID本文取得、プレーンテキスト表示へ追従。 |
