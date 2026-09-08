@@ -7,8 +7,8 @@
 Providerごとにページ内タブを表示し、次の許可済みパスだけを走査します。
 
 - Kiro: `.kiro/steering/**/*.md`、`.kiro/skills/**/SKILL.md`、`.kiro/knowledge/**/*.md`
-- Claude: `.claude/settings.json`、`rules/**/*.md`、`skills/**/SKILL.md`、`commands/**/*.md`、`agents/**/*.md`
-- Gemini: `.gemini/settings.json`、`commands/**/*.toml`、`skills/**/SKILL.md`
+- Claude: ホーム直下の `CLAUDE.md`、`.claude/settings.json`、`rules/**/*.md`、`skills/**/SKILL.md`、`commands/**/*.md`、`agents/**/*.md`
+- Gemini: ホーム直下の `GEMINI.md`、`.gemini/settings.json`、`commands/**/*.toml`、`skills/**/SKILL.md`
 - Codex: `.codex/config.toml`、`.codex/*.config.toml`
 
 Codexの認証情報、履歴、ログなどは一覧対象に含めません。

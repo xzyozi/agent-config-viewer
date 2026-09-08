@@ -13,10 +13,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 HOME_ROOT = Path.home().resolve()
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 PROVIDERS = (
-    {"id": "kiro", "label": "Kiro", "root": ".kiro", "categories": (("Steering", "steering", ("**/*.md",)), ("Skills", "skills", ("**/SKILL.md",)), ("Knowledge", "knowledge", ("**/*.md",)))},
-    {"id": "claude", "label": "Claude", "root": ".claude", "categories": (("Settings", ".", ("settings.json",)), ("Rules", "rules", ("**/*.md",)), ("Skills", "skills", ("**/SKILL.md",)), ("Commands", "commands", ("**/*.md",)), ("Agents", "agents", ("**/*.md",)))},
-    {"id": "gemini", "label": "Gemini", "root": ".gemini", "categories": (("Settings", ".", ("settings.json",)), ("Commands", "commands", ("**/*.toml",)), ("Skills", "skills", ("**/SKILL.md",)))},
-    {"id": "codex", "label": "Codex", "root": ".codex", "categories": (("Settings", ".", ("config.toml", "*.config.toml")),)},
+    {"id": "kiro", "label": "Kiro", "root": ".kiro", "categories": (("Steering", "provider", "steering", ("**/*.md",)), ("Skills", "provider", "skills", ("**/SKILL.md",)), ("Knowledge", "provider", "knowledge", ("**/*.md",)))},
+    {"id": "claude", "label": "Claude", "root": ".claude", "categories": (("Global Instructions", "home", ".", ("CLAUDE.md",)), ("Settings", "provider", ".", ("settings.json",)), ("Rules", "provider", "rules", ("**/*.md",)), ("Skills", "provider", "skills", ("**/SKILL.md",)), ("Commands", "provider", "commands", ("**/*.md",)), ("Agents", "provider", "agents", ("**/*.md",)))},
+    {"id": "gemini", "label": "Gemini", "root": ".gemini", "categories": (("Global Instructions", "home", ".", ("GEMINI.md",)), ("Settings", "provider", ".", ("settings.json",)), ("Commands", "provider", "commands", ("**/*.toml",)), ("Skills", "provider", "skills", ("**/SKILL.md",)))},
+    {"id": "codex", "label": "Codex", "root": ".codex", "categories": (("Settings", "provider", ".", ("config.toml", "*.config.toml")),)},
 )
 
 
@@ -63,47 +63,63 @@ def walk_files(directory: Path):
             if entry.is_dir(follow_symlinks=False):
                 yield from walk_files(Path(entry.path))
             elif entry.is_file(follow_symlinks=False):
-                yield entry
+                yield Path(entry.path)
 
 
 def scan_provider(specification: dict[str, object], next_id: list[int]) -> dict[str, object]:
     root = HOME_ROOT / str(specification["root"])
     try:
-        if not root.is_dir() or root.is_symlink():
-            return provider_result(specification, "not_found")
-        resolved_root = root.resolve(strict=True)
-        if not is_within(resolved_root, HOME_ROOT):
+        root_available = root.is_dir() and not root.is_symlink()
+        resolved_root = root.resolve(strict=True) if root_available else None
+        if resolved_root and not is_within(resolved_root, HOME_ROOT):
             return provider_result(specification, "list_failed")
         entries = []
-        for category_name, category_path, patterns in specification["categories"]:
+        for category_name, scope, category_path, patterns in specification["categories"]:
+            if scope == "home":
+                entries.extend(scan_home_files(patterns, specification, category_name, next_id))
+                continue
+            if not resolved_root:
+                continue
             category_root = resolved_root if category_path == "." else resolved_root.joinpath(*category_path.split("/"))
             if not category_root.is_dir() or category_root.is_symlink():
                 continue
-            for entry in walk_files(category_root):
-                if not matches(entry.name, patterns):
-                    continue
-                entries.append(file_entry(entry, resolved_root, specification, category_name, category_path, next_id))
-        return {"providerId": specification["id"], "status": "ok", "fileEntries": entries, "errorKind": None}
+            for file_path in walk_files(category_root):
+                if matches(file_path.name, patterns):
+                    entries.append(file_entry(file_path, resolved_root, str(specification["root"]), specification, category_name, next_id))
+        status = "ok" if resolved_root or entries else "not_found"
+        return {"providerId": specification["id"], "status": status, "fileEntries": entries, "errorKind": None if status == "ok" else status}
     except PermissionError:
         return provider_result(specification, "permission_denied")
     except OSError:
         return provider_result(specification, "list_failed")
 
 
+def scan_home_files(patterns: tuple[str, ...], specification: dict[str, object], category_name: str, next_id: list[int]) -> list[dict[str, object]]:
+    entries = []
+    for name in patterns:
+        if "*" in name:
+            continue
+        file_path = HOME_ROOT / name
+        if file_path.is_file() and not file_path.is_symlink():
+            entries.append(file_entry(file_path, HOME_ROOT, "", specification, category_name, next_id))
+    return entries
+
+
 def provider_result(specification: dict[str, object], status: str) -> dict[str, object]:
     return {"providerId": specification["id"], "status": status, "fileEntries": [], "errorKind": status}
 
 
-def file_entry(entry: os.DirEntry[str], root: Path, specification: dict[str, object], category_name: str, category_path: str, next_id: list[int]) -> dict[str, object]:
+def file_entry(file_path: Path, base: Path, relative_prefix: str, specification: dict[str, object], category_name: str, next_id: list[int]) -> dict[str, object]:
     next_id[0] += 1
     try:
-        size = entry.stat(follow_symlinks=False).st_size
+        size = file_path.stat().st_size
         readable = size <= MAX_READABLE_BYTES
         reason = None if readable else "too_large"
     except OSError:
         size, readable, reason = 0, False, "permission_denied"
-    relative = Path(entry.path).resolve(strict=False).relative_to(root).as_posix()
-    return {"id": f"file-{next_id[0]}", "providerId": specification["id"], "categoryName": category_name, "relativePath": f"{specification['root']}/{relative}", "displayName": entry.name, "kind": file_kind(entry.name), "sizeBytes": size, "readable": readable, "unreadableReason": reason}
+    relative = file_path.relative_to(base).as_posix()
+    relative_path = f"{relative_prefix}/{relative}" if relative_prefix else relative
+    return {"id": f"file-{next_id[0]}", "providerId": specification["id"], "categoryName": category_name, "relativePath": relative_path, "displayName": file_path.name, "kind": file_kind(file_path.name), "sizeBytes": size, "readable": readable, "unreadableReason": reason}
 
 
 def catalog_payload() -> dict[str, object]:

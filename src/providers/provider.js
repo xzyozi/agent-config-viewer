@@ -10,7 +10,8 @@ export function createProvider(specification) {
     }
     const names = new Set();
     for (const category of categories) {
-        if (!category.name || names.has(category.name) || category.path.includes("..") || !category.patterns?.length) {
+        const scope = category.scope ?? "provider";
+        if (!category.name || names.has(category.name) || category.path.includes("..") || !category.patterns?.length || !["provider", "home"].includes(scope) || (scope === "home" && category.path !== ".")) {
             throw new TypeError("Invalid provider category.");
         }
         names.add(category.name);
