@@ -1,25 +1,26 @@
 # agent-config-viewer
 
-ローカルフォルダをユーザーが選択し、その配下のAIエージェント設定を閲覧する静的Webアプリケーションです。初期版は外部送信、編集、保存を行いません。
+起動したユーザーのホームディレクトリにあるAIエージェント設定を、ローカルだけで一覧表示するアプリケーションです。外部送信、編集、保存は行いません。
 
-## T-SRC-001で提供する機能
+## 対象
 
-- Chromium系ブラウザの File System Access API を使ったフォルダ選択
-- 選択ルート配下の `.kiro` 検出
-- `.kiro/steering/**/*.md`、`.kiro/skills/**/SKILL.md`、`.kiro/knowledge/**/*.md` の一覧表示
+Providerごとにページ内タブを表示し、次の許可済みパスだけを走査します。
 
-ファイル本文の読取・Markdown表示、Claude/Gemini対応、Firefoxなどへのフォールバックは後続タスクの対象です。
+- Kiro: `.kiro/steering/**/*.md`、`.kiro/skills/**/SKILL.md`、`.kiro/knowledge/**/*.md`
+- Claude: `.claude/settings.json`、`rules/**/*.md`、`skills/**/SKILL.md`、`commands/**/*.md`、`agents/**/*.md`
+- Gemini: `.gemini/settings.json`、`commands/**/*.toml`、`skills/**/SKILL.md`
+- Codex: `.codex/config.toml`、`.codex/*.config.toml`
+
+Codexの認証情報、履歴、ログなどは一覧対象に含めません。
 
 ## ローカルでの起動
 
-Pythonが利用できるWindows環境では、リポジトリのルートで次を**手動で**実行します。
+Pythonが利用できるWindows環境で、リポジトリのルートから次を**手動で**実行します。
 
 ```powershell
-py -m http.server 8765 --bind 127.0.0.1
+py server.py
 ```
 
-次に Chromium系ブラウザで <http://localhost:8765/> を開いてください。これは開発用のローカル静的サーバーであり、設定ファイルを外部へ送信しません。
+Chromium系ブラウザで <http://127.0.0.1:8765/> を開いてください。サーバーは `127.0.0.1` だけで待受し、任意パスの読取・外部公開・外部通信を行いません。
 
-通常は `.kiro` を含む親フォルダを選択します。ただし、Windowsのプロファイルディレクトリ（例: `C:\\Users\\<user>`）はシステムファイルを含むため、ブラウザにより選択を拒否されることがあります。その場合は、`C:\\Users\\<user>\\.kiro` を直接選択してください。
-
-このリポジトリではNode.js依存、ビルド手順、CI変更は不要です。`file://` 直開きはブラウザの制約によりサポートしません。
+ファイル本文の読取・Markdown表示は後続タスクの対象です。
