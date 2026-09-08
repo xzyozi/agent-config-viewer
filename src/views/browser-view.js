@@ -12,7 +12,7 @@ export class BrowserView {
 
     renderNotice() {
         this.setStatus("フォルダを選択してください。");
-        this.renderMessage("フォルダの選択状態は保存されません。再読み込み後は再選択してください。", "notice");
+        this.renderMessage("選択状態は保存されません。Windowsプロファイル直下を選べない場合は、.kiro フォルダ自体を選択してください。", "notice");
     }
 
     renderScanning() {

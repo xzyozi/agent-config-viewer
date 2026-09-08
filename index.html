@@ -1,24 +1,27 @@
 <!doctype html>
 <html lang="ja">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>agent-config-viewer</title>
-    <link rel="stylesheet" href="./src/styles/main.css">
-  </head>
-  <body>
-    <main class="app-shell">
-      <header class="page-header">
-        <p class="eyebrow">Local-only configuration browser</p>
-        <h1>Agent Config Viewer</h1>
-        <p>選択したフォルダ内の対応エージェント設定を一覧表示します。内容の読取・保存はまだ行いません。</p>
-      </header>
-      <section class="toolbar" aria-label="フォルダ操作">
-        <button id="select-root" type="button">フォルダを選択</button>
-      </section>
-      <p id="status" class="status" role="status"></p>
-      <section id="catalog" class="catalog" aria-live="polite"></section>
-    </main>
-    <script type="module" src="./src/main.js"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agent-config-viewer</title>
+  <link rel="stylesheet" href="./src/styles/main.css">
+</head>
+
+<body>
+  <main class="app-shell">
+    <header class="page-header">
+      <p class="eyebrow">Local-only configuration browser</p>
+      <h1>Agent Config Viewer</h1>
+      <p>選択したフォルダ、または直接選択した <code>.kiro</code> 内の設定を一覧表示します。内容の読取・保存はまだ行いません。</p>
+    </header>
+    <section class="toolbar" aria-label="フォルダ操作">
+      <button id="select-root" type="button">フォルダを選択</button>
+    </section>
+    <p id="status" class="status" role="status"></p>
+    <section id="catalog" class="catalog" aria-live="polite"></section>
+  </main>
+  <script type="module" src="./src/main.js"></script>
+</body>
+
 </html>

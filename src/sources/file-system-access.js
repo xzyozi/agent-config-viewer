@@ -20,7 +20,7 @@ export class FileSystemAccessAdapter {
 
     async probe(rootSelection, provider) {
         try {
-            await rootSelection.handle.getDirectoryHandle(provider.rootDir);
+            await this.getProviderRoot(rootSelection, provider);
             return { found: true };
         } catch (error) {
             if (error.name === "NotFoundError") {
@@ -31,7 +31,7 @@ export class FileSystemAccessAdapter {
     }
 
     async listFiles(rootSelection, provider) {
-        const providerRoot = await rootSelection.handle.getDirectoryHandle(provider.rootDir);
+        const providerRoot = await this.getProviderRoot(rootSelection, provider);
         const entries = [];
         for (const category of provider.categories) {
             const categoryRoot = await getDirectory(providerRoot, category.path);
@@ -52,6 +52,13 @@ export class FileSystemAccessAdapter {
     clear() {
         this.fileHandles.clear();
         this.rootSelection = null;
+    }
+
+    async getProviderRoot(rootSelection, provider) {
+        if (rootSelection.handle.name === provider.rootDir) {
+            return rootSelection.handle;
+        }
+        return rootSelection.handle.getDirectoryHandle(provider.rootDir);
     }
 
     async collectFiles(directory, provider, category, segments, entries) {
