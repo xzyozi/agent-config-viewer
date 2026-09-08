@@ -1,0 +1,151 @@
+:root {
+  color: #1c2833;
+  background: #f6f8fa;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  width: min(100% - 2rem, 960px);
+  margin: 0 auto;
+  padding: 3rem 0 4rem;
+}
+
+.page-header {
+  max-width: 720px;
+}
+
+.eyebrow {
+  color: #1f6f8b;
+  font-size: .85rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: .2rem 0 .75rem;
+  font-size: clamp(2rem, 5vw, 3rem);
+}
+
+.toolbar {
+  margin: 2rem 0 1rem;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  border-radius: .4rem;
+  padding: .75rem 1rem;
+  background: #0969da;
+  color: #fff;
+  font-weight: 700;
+}
+
+button:hover {
+  background: #0550ae;
+}
+
+.status {
+  min-height: 1.5rem;
+  margin: 0 0 1rem;
+  color: #57606a;
+}
+
+.status[data-tone="error"] {
+  color: #b42318;
+}
+
+.status[data-tone="progress"] {
+  color: #1f6f8b;
+}
+
+.catalog {
+  display: grid;
+  gap: 1rem;
+}
+
+.provider {
+  overflow: hidden;
+  border: 1px solid #d0d7de;
+  border-radius: .5rem;
+  background: #fff;
+}
+
+.provider h2 {
+  margin: 0;
+  padding: 1rem;
+  background: #f6f8fa;
+  font-size: 1.1rem;
+}
+
+.category {
+  padding: 0 1rem 1rem;
+}
+
+.category h3 {
+  margin-bottom: .5rem;
+  font-size: 1rem;
+}
+
+ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+li {
+  padding: .2rem 0;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  margin: 0;
+  color: #57606a;
+}
+
+.notice {
+  border-left: 4px solid #bf8700;
+  padding-left: .75rem;
+  color: #5f4300;
+}
+
+.provider-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  border-bottom: 1px solid #d0d7de;
+  padding-bottom: .75rem;
+}
+
+.provider-tab {
+  background: #eaeef2;
+  color: #24292f;
+}
+
+.provider-tab[aria-selected="true"] {
+  background: #0969da;
+  color: #fff;
+}
+
+.provider-panel {
+  border: 1px solid #d0d7de;
+  border-radius: .5rem;
+  background: #fff;
+  padding: 1rem;
+}
+
+.provider-panel:focus {
+  outline: 3px solid #80bfff;
+  outline-offset: 2px;
+}
