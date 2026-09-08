@@ -23,4 +23,21 @@ py server.py
 
 Chromium系ブラウザで <http://127.0.0.1:8765/> を開いてください。サーバーは `127.0.0.1` だけで待受し、任意パスの読取・外部公開・外部通信を行いません。
 
+## CLI
+
+フロントエンドを使わず、同じ許可済み範囲を確認できます。
+
+```powershell
+# 全Providerの対象ファイルを一覧表示
+py cli.py list
+
+# Geminiだけを一覧表示
+py cli.py list --provider gemini
+
+# 他ツール連携用のJSON出力
+py cli.py list --json
+```
+
+CLIはファイル本文を読まず、許可済みの相対パスとProviderごとの検出結果だけを表示します。
+
 ファイル本文の読取・Markdown表示は後続タスクの対象です。
