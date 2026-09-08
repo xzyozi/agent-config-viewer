@@ -1,5 +1,12 @@
 const CATALOG_PATH = "/api/catalog";
 
+export class FileReadError extends Error {
+    constructor(code = "read_failed") {
+        super(code);
+        this.code = code;
+    }
+}
+
 export class LocalConfigSource {
     constructor(fetchFn = window.fetch.bind(window)) {
         this.fetchFn = fetchFn;
@@ -10,6 +17,15 @@ export class LocalConfigSource {
         const results = await this.load();
         const byId = new Map(results.map((result) => [result.providerId, result]));
         return providers.map((provider) => byId.get(provider.id) ?? missingResult(provider.id));
+    }
+
+    async readText(fileId) {
+        const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/content`, { headers: { Accept: "application/json" } });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || typeof payload.content !== "string" || payload.fileId !== fileId) {
+            throw new FileReadError(payload?.code === "too_large" ? "too_large" : "read_failed");
+        }
+        return payload.content;
     }
 
     async load() {
@@ -23,6 +39,4 @@ export class LocalConfigSource {
     }
 }
 
-function missingResult(providerId) {
-    return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" };
-}
+function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" }; }
