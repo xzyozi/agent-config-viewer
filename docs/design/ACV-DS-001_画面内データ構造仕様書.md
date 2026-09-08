@@ -115,6 +115,8 @@ classDiagram
 | `readable`         | 真偽値         |  必須  | 真の場合だけ `readText` を呼び出せる                                                                  |
 | `unreadableReason` | 列挙値または空 |  必須  | `readable` が偽の場合は `too_large`、`unsupported_kind`、`permission_denied` のいずれか。真の場合は空 |
 
+`Read Failed` は `readText` の実行後に判明する失敗であるため、`FileEntry.unreadableReason` には含めない。`ViewState.error` の Error DTO として扱う。
+
 ### 2.5 ProviderResult
 | フィールド    | データ型       | 必須性 | 制約                                                                    |
 | :------------ | :------------- | :----: | :---------------------------------------------------------------------- |
