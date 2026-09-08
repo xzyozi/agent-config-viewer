@@ -1,11 +1,14 @@
 ---
-title: "agent-config-viewer 実装タスクフロー"
+title: "agent-config-viewer 初期実装タスクフロー（アーカイブ）"
 document_type: "implementation_task_flow"
 version: "2.0"
 created_at: "2026-09-08"
 updated_at: "2026-09-08"
+archived_at: "2026-09-08"
 author: "xzyozi"
-purpose: "Docs、CI、Srcを独立したPRで管理し、ローカルビューアの完了機能と残タスクを明確にする。"
+status: "completed"
+successor: "../features/ACV-FE-001_ローカルビューアブラウザE2E検証方針.md"
+purpose: "PR #3からPR #6までに完了した初期ローカルビューアの実装、CI、Docs整備の履歴を保存する。"
 related_documents:
   - "../design/ACV-BD-001_基本設計書.md"
   - "../design/ACV-DD-001_閲覧フロー詳細設計書.md"
@@ -15,7 +18,9 @@ related_documents:
   - "../setup/mermaid_ci_validation.md"
   - "../setup/local_viewer_ci_validation.md"
 ---
-# 実装タスクフロー
+# 初期実装タスクフロー（アーカイブ）
+## アーカイブ情報
+PR #3からPR #6までで初期ローカルビューアの実装、CI、設計文書追従は完了した。本書は履歴として保持し、Browser E2E自動化などの後続作業は`ACV-FE-001_ローカルビューアブラウザE2E検証方針.md`で管理する。
 | 項目     | 内容                        |
 | :------- | :-------------------------- |
 | 文書番号 | ACV-PM-001                  |
