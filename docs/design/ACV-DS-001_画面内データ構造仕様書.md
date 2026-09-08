@@ -1,7 +1,7 @@
 ---
 title: "agent-config-viewer 画面内データ構造仕様書"
 document_type: "data_structure_specification"
-version: "1.0"
+version: "1.1"
 created_at: "2026-09-08"
 updated_at: "2026-09-08"
 author: "xzyozi"
@@ -18,7 +18,7 @@ related_documents:
 | :------------- | :----------------------------------------- |
 | 文書番号       | ACV-DS-001                                 |
 | ドキュメント名 | agent-config-viewer 画面内データ構造仕様書 |
-| 版数           | Rev.1.0（新規作成）                        |
+| 版数           | Rev.1.1（レビュー反映）                    |
 | 改訂日         | 2026-09-08                                 |
 | 作成日         | 2026-09-08                                 |
 | 作成者         | xzyozi                                     |
@@ -50,6 +50,12 @@ classDiagram
         path
         patterns
     }
+    class ProviderResult {
+        providerId
+        status
+        fileEntries
+        errorKind
+    }
     class FileEntry {
         id
         providerId
@@ -58,10 +64,11 @@ classDiagram
         displayName
         kind
         sizeBytes
+        readable
+        unreadableReason
     }
     class BrowseState {
-        providers
-        fileEntries
+        providerResults
         selectedProviderId
         selectedCategory
     }
@@ -72,8 +79,9 @@ classDiagram
         error
     }
     ProviderSpec "1" --> "*" CategorySpec
-    ProviderSpec "1" --> "*" FileEntry
-    BrowseState "1" --> "*" FileEntry
+    ProviderSpec "1" --> "*" ProviderResult
+    ProviderResult "1" --> "*" FileEntry
+    BrowseState "1" --> "*" ProviderResult
     ViewState "0..1" --> "1" FileEntry
 ```
 
@@ -95,33 +103,44 @@ classDiagram
 | `displayOrder` | 数値       |  必須  | 昇順表示用の非負整数               |
 
 ### 2.4 FileEntry
-| フィールド     | データ型 | 必須性 | 制約                                          |
-| :------------- | :------- | :----: | :-------------------------------------------- |
-| `id`           | 文字列   |  必須  | 画面内で一意の不透明ID。URLへ実パスを出さない |
-| `providerId`   | 文字列   |  必須  | 登録済みProviderを参照                        |
-| `categoryName` | 文字列   |  必須  | Provider内の登録済みCategoryを参照            |
-| `relativePath` | 文字列   |  必須  | 選択ルートからの相対パス。`..` を含まない     |
-| `displayName`  | 文字列   |  必須  | UI表示名                                      |
-| `kind`         | 列挙値   |  必須  | `markdown`、`json`、`toml`、`yaml`、`text`    |
-| `sizeBytes`    | 数値     |  必須  | 0以上。読込上限判定に利用                     |
-| `readable`     | 真偽値   |  必須  | サイズ・形式・権限により表示可否を表す        |
+| フィールド         | データ型       | 必須性 | 制約                                                                                                  |
+| :----------------- | :------------- | :----: | :---------------------------------------------------------------------------------------------------- |
+| `id`               | 文字列         |  必須  | 画面内で一意の不透明ID。URLへ実パスを出さない                                                         |
+| `providerId`       | 文字列         |  必須  | 登録済みProviderを参照                                                                                |
+| `categoryName`     | 文字列         |  必須  | Provider内の登録済みCategoryを参照                                                                    |
+| `relativePath`     | 文字列         |  必須  | 選択ルートからの相対パス。`..` を含まない                                                             |
+| `displayName`      | 文字列         |  必須  | UI表示名                                                                                              |
+| `kind`             | 列挙値         |  必須  | `markdown`、`json`、`toml`、`yaml`、`text`                                                            |
+| `sizeBytes`        | 数値           |  必須  | 0以上。読込上限判定に利用                                                                             |
+| `readable`         | 真偽値         |  必須  | 真の場合だけ `readText` を呼び出せる                                                                  |
+| `unreadableReason` | 列挙値または空 |  必須  | `readable` が偽の場合は `too_large`、`unsupported_kind`、`permission_denied` のいずれか。真の場合は空 |
 
-### 2.5 BrowseStateおよびViewState
-| 状態          | 主なフィールド               | 用途                           |
-| :------------ | :--------------------------- | :----------------------------- |
-| `idle`        | なし                         | 起動直後                       |
-| `pickingRoot` | 操作中フラグ                 | フォルダ選択ダイアログの起動中 |
-| `scanning`    | Root Selection、Provider一覧 | Provider検出・ファイル走査中   |
-| `browsing`    | BrowseState                  | 一覧表示可能                   |
-| `reading`     | selectedFileId               | ファイル本文を読込中           |
-| `rendered`    | ViewState                    | 安全な内容表示が完了           |
-| `error`       | Error DTO                    | 回復可能なエラーを表示         |
+### 2.5 ProviderResult
+| フィールド    | データ型       | 必須性 | 制約                                                                    |
+| :------------ | :------------- | :----: | :---------------------------------------------------------------------- |
+| `providerId`  | 文字列         |  必須  | 登録済みProviderを参照                                                  |
+| `status`      | 列挙値         |  必須  | `ok`、`not_found`、`permission_denied`、`list_failed`                   |
+| `fileEntries` | FileEntry配列  |  必須  | `status` が `ok` の場合に対象ファイルを保持。その他は空配列             |
+| `errorKind`   | 列挙値または空 |  必須  | `status` が `ok` 以外の場合のUI表示用分類。例外本文・絶対パスを含めない |
+
+### 2.6 BrowseStateおよびViewState
+`BrowseState` はProviderごとの `ProviderResult` を保持する。Provider単位の失敗は一覧画面内で表示し、全Providerの結果を破棄しない。トップレベルの `error` 状態は、Root Selectionの喪失などアプリケーション全体を継続できない失敗だけに使用する。
+
+| 状態          | 主なフィールド               | 用途                                         |
+| :------------ | :--------------------------- | :------------------------------------------- |
+| `idle`        | なし                         | 起動直後                                     |
+| `pickingRoot` | 操作中フラグ                 | フォルダ選択ダイアログの起動中               |
+| `scanning`    | Root Selection、Provider一覧 | Provider検出・ファイル走査中                 |
+| `browsing`    | BrowseState                  | Providerごとの成功・部分失敗を含む一覧表示   |
+| `reading`     | selectedFileId               | 読取可能なファイル本文を読込中               |
+| `rendered`    | ViewState                    | 安全な内容表示が完了                         |
+| `error`       | Error DTO                    | アプリケーション全体の回復可能なエラーを表示 |
 
 ## 3. データ生命周期
 ### 3.1 生命周期規則
 1. ユーザーがフォルダを選択する。
 2. DirectorySourceが一時的なRoot Selectionを返す。
-3. CatalogがProviderSpecを参照し、FileEntryをメモリ上に生成する。
+3. CatalogがProviderSpecを参照し、ProviderごとのProviderResultと閲覧可能なFileEntryをメモリ上に生成する。
 4. ユーザーがFileEntryを選ぶと、本文を一時的に読み込み、Render Resultを生成する。
 5. フォルダ再選択、一覧への復帰、画面再読込、タブ終了のいずれかで選択状態と本文を破棄する。
 
@@ -137,6 +156,7 @@ classDiagram
 - 将来、検索インデックスや閲覧履歴を追加する場合は、保存範囲・保持期間・消去操作を定義するデータ構造仕様書を別途作成する。
 
 ## 5. 改訂履歴
-| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                  |
-| :------ | :--------- | :----- | :-------------------------------------------------- |
-| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。画面内DTO、状態遷移、非永続化方針を定義。 |
+| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                                       |
+| :------ | :--------- | :----- | :--------------------------------------------------------------------------------------- |
+| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。画面内DTO、状態遷移、非永続化方針を定義。                                      |
+| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。ProviderResultとunreadableReasonを追加し、部分失敗を表現可能にした。 |

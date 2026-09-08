@@ -1,7 +1,7 @@
 ---
 title: "agent-config-viewer 基本設計書"
 document_type: "basic_design"
-version: "1.0"
+version: "1.1"
 created_at: "2026-09-08"
 updated_at: "2026-09-08"
 author: "xzyozi"
@@ -18,7 +18,7 @@ related_documents:
 | :------------- | :----------------------------- |
 | 文書番号       | ACV-BD-001                     |
 | ドキュメント名 | agent-config-viewer 基本設計書 |
-| 版数           | Rev.1.0（新規作成）            |
+| 版数           | Rev.1.1（レビュー反映）        |
 | 改訂日         | 2026-09-08                     |
 | 作成日         | 2026-09-08                     |
 | 作成者         | xzyozi                         |
@@ -60,14 +60,14 @@ agent-config-viewer は、ユーザーが明示的に選択したローカルフ
 flowchart TD
     User[User] -->|Select folder| AppShell[AppShell]
     AppShell --> Router[Router]
-    AppShell --> Source[DirectorySource Interface]
-    Source --> FsAdapter[FileSystemAccessAdapter]
-    Source --> FallbackAdapter[WebkitDirectoryAdapter]
-    Source --> Catalog[Catalog Module]
+    AppShell --> Catalog[Catalog Module]
     Catalog --> Providers[Provider Registry]
     Providers --> Kiro[Kiro Provider]
     Providers --> Claude[Claude Provider]
     Providers --> Gemini[Gemini Provider]
+    Catalog --> Source[DirectorySource Interface]
+    Source --> FsAdapter[FileSystemAccessAdapter]
+    Source --> FallbackAdapter[WebkitDirectoryAdapter]
     Catalog --> BrowserView[Browser View]
     BrowserView --> ViewerView[Viewer View]
     ViewerView --> Renderer[MarkdownRenderer]
@@ -77,21 +77,23 @@ flowchart TD
 ```
 
 ### 2.2 Module責務マッピング
-| #    | Module                    | 担当領域・主要責務                                           | 関連詳細設計書 |
-| :--- | :------------------------ | :----------------------------------------------------------- | :------------- |
-| 1    | `AppShell`                | 初期化、ユーザー操作の受付、画面共通状態の保持               | ACV-DD-001     |
-| 2    | `Router`                  | ハッシュURLとView Moduleの切替                               | ACV-DD-001     |
-| 3    | `DirectorySource`         | フォルダ選択、対象ディレクトリ走査、テキスト読込のInterface  | ACV-DD-001     |
-| 4    | `FileSystemAccessAdapter` | Chromium系ブラウザにおけるDirectory Handleの読取実装         | ACV-DD-001     |
-| 5    | `WebkitDirectoryAdapter`  | 非対応ブラウザ向けの一括選択フォールバック                   | ACV-DD-001     |
-| 6    | `Catalog`                 | Provider定義を用いた検出、カテゴリ分け、表示用File Entry生成 | ACV-DD-001     |
-| 7    | `Provider Registry`       | 対応エージェントProviderの登録と検索                         | ACV-DD-001     |
-| 8    | `MarkdownRenderer`        | Markdown変換、サニタイズ、表示用HTML生成                     | ACV-DD-001     |
-| 9    | `Browser View`            | エージェント・カテゴリ・ファイルの一覧表示                   | ACV-DD-001     |
-| 10   | `Viewer View`             | Markdownまたはテキストの安全な閲覧表示                       | ACV-DD-001     |
+| #    | Module                    | 担当領域・主要責務                                                                 | 関連詳細設計書 |
+| :--- | :------------------------ | :--------------------------------------------------------------------------------- | :------------- |
+| 1    | `AppShell`                | 初期化、ユーザー操作の受付、画面共通状態の保持                                     | ACV-DD-001     |
+| 2    | `Router`                  | ハッシュURLとView Moduleの切替                                                     | ACV-DD-001     |
+| 3    | `DirectorySource`         | フォルダ選択、対象ディレクトリ走査、テキスト読込のInterface                        | ACV-DD-001     |
+| 4    | `FileSystemAccessAdapter` | Chromium系ブラウザにおけるDirectory Handleの読取実装                               | ACV-DD-001     |
+| 5    | `WebkitDirectoryAdapter`  | 非対応ブラウザ向けの一括選択フォールバック                                         | ACV-DD-001     |
+| 6    | `Catalog`                 | Provider Registry参照、Provider検出、対象ファイル走査、カテゴリ分け、表示用DTO生成 | ACV-DD-001     |
+| 7    | `Provider Registry`       | 対応エージェントProviderの登録と検索                                               | ACV-DD-001     |
+| 8    | `MarkdownRenderer`        | Markdown変換、サニタイズ、表示用HTML生成                                           | ACV-DD-001     |
+| 9    | `Browser View`            | エージェント・カテゴリ・ファイルの一覧表示                                         | ACV-DD-001     |
+| 10   | `Viewer View`             | Markdownまたはテキストの安全な閲覧表示                                             | ACV-DD-001     |
 
 ### 2.3 深いModuleとしての設計
-`Catalog` は、Providerごとのパス解決、カテゴリ判定、拡張子判定、サイズ上限確認、一覧用データ変換を内部へ隠蔽する深いModuleとする。呼び出し側は、選択済みルートを走査して閲覧可能なFile Entryを得る小さなInterfaceだけを利用する。
+`Catalog` は、Provider Registry参照、Provider検出、パス解決、カテゴリ判定、拡張子判定、サイズ上限確認、一覧用データ変換を内部へ隠蔽する深いModuleとする。呼び出し側は `discover(rootSelection)` によりProvider単位の結果と閲覧可能なFile Entryを得る小さなInterfaceだけを利用する。
+
+Providerごとの未検出・権限拒否・一覧取得失敗は `Catalog` がProvider Resultとして集約し、他Providerの成功結果を維持する。アプリケーション全体を継続できない失敗だけをトップレベルのエラー状態とする。
 
 `DirectorySource` は二つのAdapterを持つため、実際のSeamとして設ける。
 
@@ -148,6 +150,7 @@ agent-config-viewer/
 - ファイル編集機能を追加する場合は、閲覧専用の `DirectorySource` とは別Interfaceを設計し、本設計の安全境界を変更する。
 
 ## 6. 改訂履歴
-| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                 |
-| :------ | :--------- | :----- | :------------------------------------------------- |
-| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。ローカル完結・閲覧専用の設計方針を定義。 |
+| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                                  |
+| :------ | :--------- | :----- | :---------------------------------------------------------------------------------- |
+| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。ローカル完結・閲覧専用の設計方針を定義。                                  |
+| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。CatalogへのProvider検出集約とProvider単位の部分失敗方針を追加。 |

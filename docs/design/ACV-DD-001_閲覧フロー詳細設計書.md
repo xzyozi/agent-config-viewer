@@ -1,7 +1,7 @@
 ---
 title: "agent-config-viewer 閲覧フロー詳細設計書"
 document_type: "detailed_design"
-version: "1.0"
+version: "1.1"
 created_at: "2026-09-08"
 updated_at: "2026-09-08"
 author: "xzyozi"
@@ -18,7 +18,7 @@ related_documents:
 | :------------- | :--------------------------------------- |
 | 文書番号       | ACV-DD-001                               |
 | ドキュメント名 | agent-config-viewer 閲覧フロー詳細設計書 |
-| 版数           | Rev.1.0（新規作成）                      |
+| 版数           | Rev.1.1（レビュー反映）                  |
 | 改訂日         | 2026-09-08                               |
 | 作成日         | 2026-09-08                               |
 | 作成者         | xzyozi                                   |
@@ -49,15 +49,15 @@ Providerはエージェント固有の構造差を吸収するModuleである。
 | Gemini   | `.gemini` | Settings、Commands、Skills、Documents |
 
 ### 1.3 DirectorySource Interface
-| 操作        | 入力                     | 出力               | 事前条件                     | 事後条件                             |
-| :---------- | :----------------------- | :----------------- | :--------------------------- | :----------------------------------- |
-| `pickRoot`  | ユーザー操作             | Root Selection     | ブラウザが対応している       | 選択されたルートのみアクセス可能     |
-| `probe`     | Root Selection、Provider | Provider Detection | ルート選択済み               | Provider rootの有無を返す            |
-| `listFiles` | Root Selection、Provider | File Entry配列     | Provider検出済み             | 許可カテゴリ・許可パターンだけを返す |
-| `readText`  | File Entry               | Text Content       | サイズ上限以下、テキスト形式 | 読取専用で本文を返す                 |
-| `clear`     | なし                     | なし               | 任意                         | 画面内選択状態を破棄する             |
+| 操作        | 入力                     | 出力               | 事前条件                                      | 事後条件                                      |
+| :---------- | :----------------------- | :----------------- | :-------------------------------------------- | :-------------------------------------------- |
+| `pickRoot`  | ユーザー操作             | Root Selection     | ブラウザが対応している                        | 選択されたルートのみアクセス可能              |
+| `probe`     | Root Selection、Provider | Provider Detection | ルート選択済み                                | Provider rootの有無または失敗理由を返す       |
+| `listFiles` | Root Selection、Provider | File Entry配列     | Provider検出済み                              | 許可カテゴリ・許可パターンだけを返す          |
+| `readText`  | File Entry               | Text Content       | `readable` が真、サイズ上限以下、テキスト形式 | 読取専用で本文を返す                          |
+| `clear`     | Root Selection           | なし               | Root Selectionが存在する                      | Adapterが保持するRoot Selectionだけを破棄する |
 
-`DirectorySource` の呼び出し側は、File System Access APIまたはフォールバック方式を意識しない。ブラウザAPIの差異はAdapterのImplementationに隠蔽する。
+`DirectorySource` の呼び出し側は、File System Access APIまたはフォールバック方式を意識しない。ブラウザAPIの差異はAdapterのImplementationに隠蔽する。画面内状態の破棄は `AppShell` とView Moduleの責務とする。
 
 ## 2. 処理フロー
 ### 2.1 フォルダ選択・一覧表示シーケンス
@@ -73,12 +73,14 @@ sequenceDiagram
     User->>App: Select folder
     App->>Source: pickRoot
     Source-->>App: Root Selection
-    App->>Provider: List providers
-    Provider-->>App: Provider definitions
-    App->>Catalog: Discover providers
-    Catalog->>Source: Probe and list files
+    App->>Catalog: discover Root Selection
+    Catalog->>Provider: List providers
+    Provider-->>Catalog: Provider definitions
+    Catalog->>Source: Probe each provider
+    Source-->>Catalog: Provider Detection results
+    Catalog->>Source: List files for detected providers
     Source-->>Catalog: File Entries
-    Catalog-->>App: Browse DTO
+    Catalog-->>App: Browse DTO with Provider Results
     App->>View: Render browse state
     View-->>User: Agent and file list
 ```
@@ -94,12 +96,18 @@ sequenceDiagram
     participant Renderer as MarkdownRenderer
     User->>View: Select file
     View->>App: Request preview
-    App->>Source: readText
-    Source-->>App: Text Content
-    App->>Renderer: Render by file kind
-    Renderer-->>App: Sanitized Render Result
-    App->>View: Render result
-    View-->>User: Safe preview
+    App->>App: Check readable kind and sizeBytes
+    alt Readable
+        App->>Source: readText
+        Source-->>App: Text Content
+        App->>Renderer: Render by file kind
+        Renderer-->>App: Sanitized Render Result
+        App->>View: Render result
+        View-->>User: Safe preview
+    else Not readable
+        App->>View: Render unavailable reason
+        View-->>User: Unavailable message
+    end
 ```
 
 ### 2.3 画面遷移規則
@@ -129,16 +137,16 @@ sequenceDiagram
 - 変換済みHTMLは、サニタイズ済みであることを示す内部DTOを経由してのみ表示領域へ渡す。
 
 ## 4. エラー処理・失敗契約
-| エラー分類          | 判定基準                  |       再試行       | 終端状態           | 保持契約                     |
-| :------------------ | :------------------------ | :----------------: | :----------------- | :--------------------------- |
-| Browser Unsupported | 必要なAPIが利用不可       |        なし        | Fallback提示       | ファイル内容を保存しない     |
-| User Cancelled      | フォルダ選択をキャンセル  |        任意        | Browse表示         | 既存表示を維持               |
-| Provider Not Found  | Provider rootが存在しない |        なし        | 空状態表示         | 他Providerの結果は維持       |
-| Permission Denied   | ブラウザの読取許可がない  | ユーザー操作時のみ | 再選択案内         | 権限昇格を自動実行しない     |
-| File Too Large      | 規定サイズ超過            |        なし        | サイズ超過表示     | 本文を読まない               |
-| Unsupported File    | 許可外形式・バイナリ      |        なし        | 非対応表示         | 本文を読まない               |
-| Read Failed         | 読取途中の例外・削除      | ユーザー操作時のみ | 再読込案内         | 内容をキャッシュしない       |
-| Render Failed       | パース・サニタイズ失敗    |        なし        | テキスト表示へ退避 | 元本文をHTMLとして挿入しない |
+| エラー分類          | 判定基準                  |       再試行       | 終端状態                     | 保持契約                     |
+| :------------------ | :------------------------ | :----------------: | :--------------------------- | :--------------------------- |
+| Browser Unsupported | 必要なAPIが利用不可       |        なし        | Fallback提示                 | ファイル内容を保存しない     |
+| User Cancelled      | フォルダ選択をキャンセル  |        任意        | Browse表示                   | 既存表示を維持               |
+| Provider Not Found  | Provider rootが存在しない |        なし        | Provider Result: `not_found` | 他Providerの結果は維持       |
+| Permission Denied   | ブラウザの読取許可がない  | ユーザー操作時のみ | 再選択案内                   | 権限昇格を自動実行しない     |
+| File Too Large      | 規定サイズ超過            |        なし        | サイズ超過表示               | 本文を読まない               |
+| Unsupported File    | 許可外形式・バイナリ      |        なし        | 非対応表示                   | 本文を読まない               |
+| Read Failed         | 読取途中の例外・削除      | ユーザー操作時のみ | 再読込案内                   | 内容をキャッシュしない       |
+| Render Failed       | パース・サニタイズ失敗    |        なし        | テキスト表示へ退避           | 元本文をHTMLとして挿入しない |
 
 ## 5. テスト・検証要件
 - Providerごとに、許可カテゴリ外のファイルを一覧に含めないことを検証する。
@@ -149,6 +157,7 @@ sequenceDiagram
 - ドキュメントへMermaid図を保存する場合は、リポジトリ既存のMermaid CIで構文検証する。
 
 ## 6. 改訂履歴
-| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                     |
-| :------ | :--------- | :----- | :--------------------------------------------------------------------- |
-| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。閲覧フロー、Provider Interface、読取・表示の失敗契約を定義。 |
+| 版数    | 改訂日     | 変更者 | 変更内容・変更理由                                                                          |
+| :------ | :--------- | :----- | :------------------------------------------------------------------------------------------ |
+| Rev.1.0 | 2026-09-08 | xzyozi | 初版作成。閲覧フロー、Provider Interface、読取・表示の失敗契約を定義。                      |
+| Rev.1.1 | 2026-09-08 | xzyozi | 設計レビューを反映。Provider検出順序、読取ガード、部分失敗およびAdapterの破棄責務を明確化。 |
