@@ -168,6 +168,14 @@ li {
   outline: 0;
 }
 
+.file-entry.is-selected {
+  border-color: #0969da;
+  border-left-width: 4px;
+  background: #ddf4ff;
+  color: #0550ae;
+  font-weight: 700;
+}
+
 .browse-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
