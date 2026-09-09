@@ -43,7 +43,7 @@ def is_link(entry: os.DirEntry[str]) -> bool:
 def matches(name: str, patterns: tuple[str, ...]) -> bool:
     lowered = name.casefold()
     return any(
-        (pattern == "**/*.md" and lowered.endswith(".md"))
+        (pattern.startswith("**/*.") and lowered.endswith(pattern[4:].casefold()))
         or (pattern == "**/SKILL.md" and lowered == "skill.md")
         or (pattern.startswith("*.") and lowered.endswith(pattern[1:].casefold()))
         or lowered == pattern.casefold()
