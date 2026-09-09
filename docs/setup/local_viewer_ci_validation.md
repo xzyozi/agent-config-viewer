@@ -1,17 +1,18 @@
 # ローカルビューアCI検証運用
 ## 目的
-`.github/workflows/validate-local-viewer.yml` により、ローカルビューアの依存なしで実行できる基本回帰検証をGitHub Actions上で行う。実ユーザーのホーム、設定本文、長時間サーバー、ブラウザE2EはCIで扱わない。
+`.github/workflows/validate-local-viewer.yml` により、構文・空HOME CLI・Browser E2EをGitHub Actionsで検証する。Browser E2Eは実ユーザーの設定を使わず、合成した一時HOMEだけを対象とする。
 ## 実行契機
-`main`または`develop`へのpush・PRで、`server.py`、`cli.py`、`index.html`、`src/**/*.js`、workflow自身のいずれかが変わると実行する。`workflow_dispatch`による手動実行も可能である。`docs/`だけの変更では実行せず、Mermaid検証workflowを利用する。
-## 検証内容
-| 手順              | 固定環境        | 確認内容                                                                                                               |
-| :---------------- | :-------------- | :--------------------------------------------------------------------------------------------------------------------- |
-| Python構文検査    | Python 3.12.8   | `python -m py_compile server.py cli.py`が成功すること                                                                  |
-| 空HOME CLI        | Python 3.12.8   | 空ディレクトリを`HOME`に指定した`python cli.py list --json`が成功し、4 Providerがすべて`not_found`かつ空一覧であること |
-| ES Module構文検査 | Node.js 22.14.0 | `src/**/*.js`へ`node --check`を実行し構文エラーがないこと                                                              |
-## セキュリティ・再現性
-CIは空の一時HOMEだけを使用し、実ユーザーの設定、本文、認証情報、履歴、ログを読まない。追加パッケージを導入せず、PythonとNode.jsのセットアップアクションはworkflowで明示した固定バージョンを使う。ローカル開発者にNode.js導入は要求しない。
+`main`または`develop`へのpush・PRで、`server.py`、`cli.py`、`index.html`、`src/**/*.js`、`tests/browser/**`、`package.json`、`playwright.config.mjs`、workflow自身のいずれかが変わると実行する。`workflow_dispatch`にも対応する。Docsだけの変更はMermaid検証workflowを使用する。
+## ジョブと検証内容
+| ジョブ                  | 固定環境                                 | 確認内容                                                                                             |
+| :---------------------- | :--------------------------------------- | :--------------------------------------------------------------------------------------------------- |
+| `validate-local-viewer` | Python 3.12.8、Node.js 22.14.0           | Python構文、空HOMEのCLI JSON、`src/**/*.js`の構文                                                    |
+| `browser-e2e`           | Python 3.12.8、Node.js 22.14.0、Chromium | 合成HOMEのProviderタブ、許可済み一覧、プレーンテキスト本文、HTML非実行、2MiB超拒否、Provider部分失敗 |
+## Browser E2E環境
+`tests/browser/create-fixtures.py`が一時HOMEにKiro、Claude、Gemini、Codexの非機密フィクスチャを作成する。`HOME`を設定して`server.py`をloopbackで起動し、Playwrightが`http://127.0.0.1:8765/`を操作する。テストは`tests/browser/local-viewer.spec.mjs`、設定は`playwright.config.mjs`を正本とする。
+## 依存・再現性
+`package.json`は`@playwright/test`を`1.54.1`へ固定する。CIでは`npm install --ignore-scripts`後にChromiumだけを取得する。ローカル開発者にNode.js・Playwright・ブラウザ導入は要求しない。
+## 失敗時の取扱い
+失敗時だけ、合成フィクスチャ由来の`test-results`、`playwright-report`、サーバーログをGitHub Actions artifactとして7日間保持する。実ユーザーHOME、認証情報、実設定本文をartifactへ含めない。サーバープロセスは成功・失敗を問わず停止する。
 ## 非対象
-本文APIのHTTPスモーク、実ブラウザでのタブ操作、実ユーザーHOMEの走査、外部ネットワーク、Markdownレンダリング、依存関係監査は対象外である。本文APIのCI追加はテスト範囲と実行方式を合意した後、CI専用PRで行う。
-## ローカル確認
-Windows環境では、必要に応じてリポジトリルートで`py -m py_compile server.py cli.py`および`py cli.py list --json`を実行する。ES Module構文はローカルNode.jsを前提とせず、CI結果で確認する。
+実ユーザー環境、Windows固有の権限・再解析ポイント、旧ブラウザタブやキャッシュ、任意パス選択、MarkdownのHTMLレンダリングは対象外である。初回または大きな変更後の実Windows環境での手動確認は引き続き推奨する。
