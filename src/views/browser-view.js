@@ -35,7 +35,7 @@ export class BrowserView {
         panel.setAttribute("role", "tabpanel");
         panel.setAttribute("tabindex", "0");
         panel.setAttribute("aria-labelledby", `tab-${selected.providerId}`);
-        this.renderProvider(panel, selected, browseState.preview, onFileSelect);
+        this.renderProvider(panel, selected, browseState.preview, onFileSelect, () => this.clearSelection());
         this.catalog.replaceChildren(tabs, panel);
     }
 
@@ -64,7 +64,7 @@ export class BrowserView {
         queueMicrotask(() => this.document.querySelector(`#tab-${results[next].providerId}`)?.focus());
     }
 
-    renderProvider(panel, result, preview, onFileSelect) {
+    renderProvider(panel, result, preview, onFileSelect, onSelectionClear) {
         const title = this.document.createElement("h2");
         title.textContent = result.label;
         panel.append(title);
@@ -76,8 +76,17 @@ export class BrowserView {
             appendText(this.document, panel, "対象ファイルはありません。", "empty");
             return;
         }
-        for (const [name, entries] of groupByCategory(result.fileEntries)) panel.append(categorySection(this.document, name, entries, onFileSelect));
-        if (preview) panel.append(previewSection(this.document, preview));
+        const files = this.document.createElement("div");
+        files.className = "browse-files";
+        for (const [name, entries] of groupByCategory(result.fileEntries)) files.append(categorySection(this.document, name, entries, onFileSelect));
+        if (!preview) {
+            panel.append(files);
+            return;
+        }
+        const layout = this.document.createElement("div");
+        layout.className = "browse-layout";
+        layout.append(files, previewSection(this.document, preview, onSelectionClear));
+        panel.append(layout);
     }
 
     renderMessage(message, className = "empty") {
@@ -92,5 +101,5 @@ function appendText(document, parent, text, className) { const element = documen
 function providerMessage(status) { return { not_found: "このユーザーのホームには対象ディレクトリがありません。", permission_denied: "対象ディレクトリへのアクセスが許可されませんでした。", list_failed: "対象ディレクトリの一覧を取得できませんでした。" }[status]; }
 function groupByCategory(entries) { const groups = new Map(); for (const entry of entries) { const group = groups.get(entry.categoryName) ?? []; group.push(entry); groups.set(entry.categoryName, group); } return groups; }
 function categorySection(document, name, entries, onFileSelect) { const section = document.createElement("div"); section.className = "category"; const title = document.createElement("h3"); title.textContent = name; const list = document.createElement("ul"); for (const entry of entries) { const item = document.createElement("li"); const button = document.createElement("button"); button.className = "file-entry"; button.type = "button"; button.textContent = entry.relativePath; button.addEventListener("click", () => onFileSelect(entry.id)); item.append(button); list.append(item); } section.append(title, list); return section; }
-function previewSection(document, preview) { const section = document.createElement("section"); section.className = "file-preview"; const title = document.createElement("h3"); title.textContent = "ファイル本文"; section.append(title); if (preview.status === "reading") { appendText(document, section, "本文を読込中です…", "empty"); return section; } if (preview.status === "error") { appendText(document, section, previewMessage(preview.code), "notice"); return section; } const name = document.createElement("p"); name.className = "preview-name"; name.textContent = preview.displayName; const content = document.createElement("pre"); content.textContent = preview.content; section.append(name, content); return section; }
+function previewSection(document, preview, onSelectionClear) { const section = document.createElement("section"); section.className = "file-preview"; const header = document.createElement("div"); header.className = "file-preview-header"; const title = document.createElement("h3"); title.textContent = "ファイル本文"; const clearButton = document.createElement("button"); clearButton.className = "clear-selection"; clearButton.type = "button"; clearButton.textContent = "選択解除"; clearButton.addEventListener("click", onSelectionClear); header.append(title, clearButton); section.append(header); if (preview.status === "reading") { appendText(document, section, "本文を読込中です…", "empty"); return section; } if (preview.status === "error") { appendText(document, section, previewMessage(preview.code), "notice"); return section; } const name = document.createElement("p"); name.className = "preview-name"; name.textContent = preview.displayName; const content = document.createElement("pre"); content.textContent = preview.content; section.append(name, content); return section; }
 function previewMessage(code) { return { too_large: "ファイルが2MiBを超えるため、本文を表示しません。", permission_denied: "ファイルの読取が許可されませんでした。", unsupported_kind: "この形式の本文は表示できません。", read_failed: "ファイル本文を読み取れませんでした。" }[code] ?? "ファイル本文を読み取れませんでした。"; }

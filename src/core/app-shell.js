@@ -36,6 +36,12 @@ export class AppShell {
         }
     }
 
+    clearSelection() {
+        if (!this.browseState?.selectedFileId) return;
+        this.browseState = { ...this.browseState, selectedFileId: null, preview: null };
+        this.renderBrowse();
+    }
+
     setPreview(fileId, preview) {
         if (this.browseState?.selectedFileId !== fileId) return;
         this.browseState = { ...this.browseState, preview };

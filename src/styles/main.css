@@ -168,14 +168,39 @@ li {
   outline: 0;
 }
 
+.browse-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
 .file-preview {
-  margin-top: 1rem;
-  border-top: 1px solid #d0d7de;
-  padding-top: 1rem;
+  border-left: 1px solid #d0d7de;
+  padding-left: 1rem;
+}
+
+.file-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .5rem;
 }
 
 .file-preview h3 {
-  margin: 0 0 .5rem;
+  margin: 0;
+}
+
+.clear-selection {
+  flex: none;
+  padding: .4rem .65rem;
+  background: #eaeef2;
+  color: #24292f;
+}
+
+.clear-selection:hover {
+  background: #d0d7de;
 }
 
 .preview-name {
@@ -194,4 +219,17 @@ li {
   color: #24292f;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 768px) {
+  .browse-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .file-preview {
+    border-top: 1px solid #d0d7de;
+    border-left: 0;
+    padding-top: 1rem;
+    padding-left: 0;
+  }
 }
