@@ -210,8 +210,6 @@ li {
 }
 
 .file-preview pre {
-  max-height: 32rem;
-  overflow: auto;
   margin: 0;
   padding: 1rem;
   border-radius: .4rem;
