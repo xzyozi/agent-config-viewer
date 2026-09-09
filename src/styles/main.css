@@ -238,6 +238,14 @@ li {
     padding-top: 1rem;
     padding-left: 0;
   }
+
+  .file-preview-header {
+    flex-wrap: wrap;
+  }
+
+  .clear-selection {
+    margin-left: auto;
+  }
 }
 
 .catalog button:focus-visible {
