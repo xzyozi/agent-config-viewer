@@ -53,6 +53,11 @@ export class AppShell {
     }
 
     renderBrowse() {
-        this.view.renderBrowse(this.browseState, (providerId) => this.selectProvider(providerId), (fileId) => this.selectFile(fileId));
+        this.view.renderBrowse(
+            this.browseState,
+            (providerId) => this.selectProvider(providerId),
+            (fileId) => this.selectFile(fileId),
+            () => this.clearSelection(),
+        );
     }
 }

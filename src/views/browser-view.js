@@ -20,7 +20,7 @@ export class BrowserView {
         this.renderMessage("設定内容や詳細な例外情報は表示しません。", "notice");
     }
 
-    renderBrowse(browseState, onProviderSelect, onFileSelect) {
+    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear) {
         const results = browseState.providerResults;
         const selected = results.find((result) => result.providerId === browseState.selectedProviderId) ?? results[0];
         this.setStatus("起動ユーザーのホームにある許可済み設定ディレクトリを表示しています。");
@@ -35,7 +35,7 @@ export class BrowserView {
         panel.setAttribute("role", "tabpanel");
         panel.setAttribute("tabindex", "0");
         panel.setAttribute("aria-labelledby", `tab-${selected.providerId}`);
-        this.renderProvider(panel, selected, browseState.preview, onFileSelect, () => this.clearSelection());
+        this.renderProvider(panel, selected, browseState.preview, onFileSelect, onSelectionClear);
         this.catalog.replaceChildren(tabs, panel);
     }
 
