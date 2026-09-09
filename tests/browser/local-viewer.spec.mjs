@@ -11,6 +11,8 @@ test("renders all provider tabs and safe file previews", async ({ page }) => {
     await expect(page.locator(".file-preview")).toHaveCount(0);
     await page.getByRole("button", { name: ".kiro/steering/safe.md" }).click();
     await expect(page.locator(".file-preview pre")).toContainText("# Kiro safe");
+    await expect(page.getByRole("button", { name: ".kiro/steering/safe.md" })).toHaveAttribute("aria-current", "true");
+    await expect(page.getByRole("button", { name: ".kiro/steering/safe.md" })).toHaveClass(/is-selected/);
     await expect(page.locator(".file-preview pre")).toContainText('<script id="unsafe">');
     await expect(page.locator("#unsafe")).toHaveCount(0);
     const [fileList, preview] = await Promise.all([
@@ -20,6 +22,7 @@ test("renders all provider tabs and safe file previews", async ({ page }) => {
     expect(preview.x).toBeGreaterThan(fileList.x + fileList.width);
     await page.getByRole("button", { name: "選択解除" }).click();
     await expect(page.locator(".file-preview")).toHaveCount(0);
+    await expect(page.locator(".file-entry[aria-current=\"true\"]")).toHaveCount(0);
     await expect(page.locator(".browse-layout")).toHaveCount(0);
     for (const [provider, file] of [["Claude", "CLAUDE.md"], ["Gemini", ".gemini/commands/example.toml"], ["Codex", ".codex/config.toml"]]) {
         await page.getByRole("tab", { name: provider }).click();

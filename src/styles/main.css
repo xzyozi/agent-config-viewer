@@ -168,6 +168,14 @@ li {
   outline: 0;
 }
 
+.file-entry.is-selected {
+  border-color: #0969da;
+  border-left-width: 4px;
+  background: #ddf4ff;
+  color: #0550ae;
+  font-weight: 700;
+}
+
 .browse-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -229,5 +237,30 @@ li {
     border-left: 0;
     padding-top: 1rem;
     padding-left: 0;
+  }
+
+  .file-preview-header {
+    flex-wrap: wrap;
+  }
+
+  .clear-selection {
+    margin-left: auto;
+  }
+}
+
+.catalog button:focus-visible {
+  outline: 3px solid #80bfff;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .catalog *,
+  .catalog *::before,
+  .catalog *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
   }
 }
