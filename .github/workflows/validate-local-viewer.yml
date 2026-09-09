@@ -23,7 +23,6 @@ on:
       - "package.json"
       - "playwright.config.mjs"
       - ".github/workflows/validate-local-viewer.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -73,6 +72,7 @@ jobs:
         run: find src -type f -name "*.js" -print0 | xargs -0 -r -n1 node --check
 
   browser-e2e:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

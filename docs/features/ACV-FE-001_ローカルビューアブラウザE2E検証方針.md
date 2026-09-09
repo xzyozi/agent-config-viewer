@@ -47,9 +47,10 @@ CIは実ユーザーのホームを読まず、ジョブ内の一時HOMEに4 Pro
 ## 5. 非対象と制約
 実ユーザー環境、Windows固有の権限・再解析ポイント、旧ブラウザタブやキャッシュ、任意パス選択、MarkdownのHTMLレンダリングは対象外である。CIは機能回帰を検出するものであり、初回または大きな変更後の実Windows環境での手動確認を完全には置き換えない。
 ## 6. 実装・検証状況
-Playwrightの固定版、合成フィクスチャ、独立した`browser-e2e`ジョブ、失敗時artifactの保持期間を実装した。GitHub Actions上で成功するまでは状態を`implemented_pending_ci`とする。CI成功後に、Browser E2Eが日常的な手動スモーク確認を代替する回帰検証であることを記録する。
+Playwrightの固定版、合成フィクスチャ、PR限定の`browser-e2e`ジョブ、失敗時artifactの保持期間を実装した。Browser E2Eは対象ファイルを変更するPRでだけ実行し、結果はPRのChecksで確認する。手動workflow実行やFeatureブランチへのpushごとのBrowser E2Eは行わない。
 ## 7. 改訂履歴
 | 版数    | 改訂日     | 変更者 | 変更内容                                                                                      |
 | :------ | :--------- | :----- | :-------------------------------------------------------------------------------------------- |
 | Rev.1.0 | 2026-09-08 | xzyozi | 初期ローカルビューアの完了後、Browser E2E自動化方針をFeatureとして作成。                      |
 | Rev.1.1 | 2026-09-08 | xzyozi | Playwright固定版、合成フィクスチャ、Browser E2Eジョブを実装。GitHub Actionsでの初回検証待ち。 |
+| Rev.1.2 | 2026-09-08 | xzyozi | Browser E2EをPR限定とし、手動workflow実行を廃止。                                             |
