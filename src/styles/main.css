@@ -244,3 +244,15 @@ li {
   outline: 3px solid #80bfff;
   outline-offset: 2px;
 }
+
+@media (prefers-reduced-motion: reduce) {
+
+  .catalog *,
+  .catalog *::before,
+  .catalog *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
