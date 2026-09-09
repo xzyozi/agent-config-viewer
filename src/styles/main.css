@@ -239,3 +239,8 @@ li {
     padding-left: 0;
   }
 }
+
+.catalog button:focus-visible {
+  outline: 3px solid #80bfff;
+  outline-offset: 2px;
+}
