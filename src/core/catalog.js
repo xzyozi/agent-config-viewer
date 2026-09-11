@@ -17,6 +17,7 @@ export class Catalog {
             selectedCategory: null,
             selectedFileId: null,
             preview: null,
+            migrationPlan: null,
             noticeCode: null,
         };
     }
@@ -25,6 +26,15 @@ export class Catalog {
         if (!fileEntry.readable) throw { code: fileEntry.unreadableReason ?? "read_failed" };
         return this.source.readText(fileEntry.id);
     }
+
+    async planSkillMigration(fileEntry) {
+        if (!isKiroSkill(fileEntry)) throw { code: "read_failed" };
+        return this.source.getSkillMigrationPlan(fileEntry.id);
+    }
+}
+
+function isKiroSkill(fileEntry) {
+    return fileEntry?.readable && fileEntry.providerId === "kiro" && fileEntry.categoryName === "Skills" && fileEntry.displayName === "SKILL.md";
 }
 
 function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" }; }

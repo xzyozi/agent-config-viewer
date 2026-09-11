@@ -19,14 +19,14 @@ export class AppShell {
 
     selectProvider(providerId) {
         if (!this.browseState?.providerResults.some((result) => result.providerId === providerId)) return;
-        this.browseState = { ...this.browseState, selectedProviderId: providerId, selectedFileId: null, preview: null };
+        this.browseState = { ...this.browseState, selectedProviderId: providerId, selectedFileId: null, preview: null, migrationPlan: null };
         this.renderBrowse();
     }
 
     async selectFile(fileId) {
         const fileEntry = this.findFile(fileId);
         if (!fileEntry) return;
-        this.browseState = { ...this.browseState, selectedFileId: fileId, preview: { status: "reading", fileId } };
+        this.browseState = { ...this.browseState, selectedFileId: fileId, preview: { status: "reading", fileId }, migrationPlan: null };
         this.renderBrowse();
         try {
             const content = await this.catalog.readText(fileEntry);
@@ -36,15 +36,34 @@ export class AppShell {
         }
     }
 
+    async planSkillMigration() {
+        const fileEntry = this.findFile(this.browseState?.selectedFileId);
+        if (!fileEntry) return;
+        this.browseState = { ...this.browseState, migrationPlan: { status: "planning", fileId: fileEntry.id } };
+        this.renderBrowse();
+        try {
+            const plan = await this.catalog.planSkillMigration(fileEntry);
+            this.setMigrationPlan(fileEntry.id, { status: "ready", fileId: fileEntry.id, plan });
+        } catch (error) {
+            this.setMigrationPlan(fileEntry.id, { status: "error", fileId: fileEntry.id, code: error?.code ?? "read_failed" });
+        }
+    }
+
     clearSelection() {
         if (!this.browseState?.selectedFileId) return;
-        this.browseState = { ...this.browseState, selectedFileId: null, preview: null };
+        this.browseState = { ...this.browseState, selectedFileId: null, preview: null, migrationPlan: null };
         this.renderBrowse();
     }
 
     setPreview(fileId, preview) {
         if (this.browseState?.selectedFileId !== fileId) return;
         this.browseState = { ...this.browseState, preview };
+        this.renderBrowse();
+    }
+
+    setMigrationPlan(fileId, migrationPlan) {
+        if (this.browseState?.selectedFileId !== fileId) return;
+        this.browseState = { ...this.browseState, migrationPlan };
         this.renderBrowse();
     }
 
@@ -58,6 +77,7 @@ export class AppShell {
             (providerId) => this.selectProvider(providerId),
             (fileId) => this.selectFile(fileId),
             () => this.clearSelection(),
+            () => this.planSkillMigration(),
         );
     }
 }
