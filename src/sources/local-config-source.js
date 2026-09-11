@@ -28,6 +28,15 @@ export class LocalConfigSource {
         return payload.content;
     }
 
+    async getSkillMigrationPlan(fileId) {
+        const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/migration-plan`, { headers: { Accept: "application/json" } });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || payload.fileId !== fileId || typeof payload.bundlePath !== "string" || typeof payload.snapshotDigest !== "string" || !isPlanSummary(payload.summary) || !Array.isArray(payload.references) || !Array.isArray(payload.warnings)) {
+            throw new FileReadError("read_failed");
+        }
+        return payload;
+    }
+
     async load() {
         if (this.results) return this.results;
         const response = await this.fetchFn(CATALOG_PATH, { headers: { Accept: "application/json" } });
@@ -37,6 +46,10 @@ export class LocalConfigSource {
         this.results = payload.providerResults;
         return this.results;
     }
+}
+
+function isPlanSummary(summary) {
+    return summary && ["detected", "updatable", "notUpdated", "unresolved"].every((key) => Number.isInteger(summary[key]) && summary[key] >= 0);
 }
 
 function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" }; }
