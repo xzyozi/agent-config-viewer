@@ -1,7 +1,7 @@
 ---
 title: "NOVA-OS UIパターン流用調査書"
 document_type: "feature_research"
-version: "1.5"
+version: "1.6"
 status: "proposed"
 created_at: "2026-09-09"
 updated_at: "2026-09-11"
@@ -62,6 +62,7 @@ NOVA-OSのCSS/JavaScript本文は、ユーザー許可の範囲で取込み可�
 - 移行前に、bundle内のUTF-8テキストから標準Markdown相対リンク、`#[[file:...]]`、明示的な`references/`・`scripts/`・`assets/`相対参照を検出する。実体へ解決できる同一bundle内参照だけを自動更新候補とし、URL、絶対パス、`~`始まり、親ディレクトリ遡行、実体なし、曖昧な平文参照は未更新として理由と行番号を表示する。
 - 移行操作は、先に書込みなしの計画を作成して、移動前後のProvider相対パス、検出・更新・未更新・未解決件数、警告を表示する。自由入力パス、Provider横断、上書きは受け付けない。
 - 初期の書込み操作は同一Provider内の非上書きコピーだけとする。移動は、コピー・参照更新・整合性検証・復旧ジャーナル・実行直前の再解析ポイント検証を完成させ、元・先・更新件数を明示確認した後に別Phaseで導入する。
+- 実パス変更の実装は [Issue #12](https://github.com/xzyozi/agent-config-viewer/issues/12) で追跡する。Issueを完了するまで、Phase 2の計画表示だけをもってパス変更完了とは扱わない。
 - `js/apps/file-manager.js`からは、選択状態、操作列、フォルダ階層のナビゲーションフローを抽出して採用する。DOM生成は`innerHTML`ではなく既存の`createElement`・`textContent`・`replaceChildren`へ置換し、状態保存はLocalStorageではなくサーバー側の許可済みカタログを正本とする。作成・改名・削除の処理は採用しない。
 
 詳細なbundle定義、参照分類、read-only計画Interface、将来のコピー・移動契約は `../design/ACV-DD-002_Skill_bundleパス移行詳細設計書.md` を正本とする。
@@ -117,3 +118,4 @@ NOVA-OSのテーマ移植、ガラス効果、OSデスクトップ、複数ウ�
 | Rev.1.3 | 2026-09-09 | xzyozi | ユーザー許可に基づき、`js/apps/file-manager.js`の選択・操作フローをC-05の採用元として明記。 |
 | Rev.1.4 | 2026-09-11 | xzyozi | Skill bundle単位の必須パス移行と参照保全を定義し、詳細設計書を正本化。                      |
 | Rev.1.5 | 2026-09-11 | xzyozi | Phase 2のread-only移行計画実装を反映し、コピー・移動が未実装であることを明記。              |
+| Rev.1.6 | 2026-09-11 | xzyozi | 実パス変更をIssue #12で追跡し、Phase 2表示だけでは完了と扱わないことを明記。                |
