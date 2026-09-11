@@ -12,6 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
+from backend.skill_migration import SkillMigrationError, plan_skill_migration
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 HOME_ROOT = Path.home().resolve()
 MAX_READABLE_BYTES = 2 * 1024 * 1024
@@ -174,9 +176,9 @@ def file_content_payload(file_id: str) -> dict[str, str]:
         raise FileContentError("read_failed") from None
 
 
-def content_file_id(request_path: str) -> str | None:
+def file_id_for_action(request_path: str, action: str) -> str | None:
     parts = request_path.split("/")
-    if len(parts) == 5 and parts[1:3] == ["api", "files"] and parts[4] == "content":
+    if len(parts) == 5 and parts[1:3] == ["api", "files"] and parts[4] == action:
         return parts[3]
     return None
 
@@ -190,9 +192,13 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         if request.path == "/api/catalog":
             self.send_json(catalog_payload())
             return
-        file_id = content_file_id(request.path)
-        if file_id is not None:
-            self.send_content(file_id)
+        migration_plan_file_id = file_id_for_action(request.path, "migration-plan")
+        if migration_plan_file_id is not None:
+            self.send_migration_plan(migration_plan_file_id)
+            return
+        content_file_id = file_id_for_action(request.path, "content")
+        if content_file_id is not None:
+            self.send_content(content_file_id)
             return
         if request.path == "/":
             self.send_static(PROJECT_ROOT / "index.html")
@@ -205,6 +211,19 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         except FileContentError as error:
             status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE if error.code == "too_large" else HTTPStatus.NOT_FOUND
             self.send_json({"code": error.code}, status)
+
+    def send_migration_plan(self, file_id: str) -> None:
+        try:
+            if not FILE_ID_PATTERN.fullmatch(file_id):
+                raise SkillMigrationError()
+            with FILE_INDEX_LOCK:
+                record = FILE_INDEX.get(file_id)
+            if not record:
+                raise SkillMigrationError()
+            file_path, allowed_root = record
+            self.send_json(plan_skill_migration(file_id, file_path, allowed_root, HOME_ROOT))
+        except SkillMigrationError as error:
+            self.send_json({"code": error.code}, HTTPStatus.NOT_FOUND)
 
     def send_json(self, payload: dict[str, object], status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
