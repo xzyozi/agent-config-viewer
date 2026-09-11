@@ -16,6 +16,10 @@ def main() -> None:
     home = Path(sys.argv[1])
     write(home, ".kiro/steering/safe.md", '# Kiro safe\n<script id="unsafe">window.e2eExecuted = true</script>\n')
     write(home, ".kiro/steering/ignored.txt", "not an allowed file\n")
+    write(home, ".kiro/skills/example/SKILL.md", "# Example skill\n[Guide](references/guide.md)\n#[[file:scripts/check.py]]\n`assets/icon.txt`\n[External](https://example.invalid)\n[Missing](references/missing.md)\n[Outside](../other.md)\n")
+    write(home, ".kiro/skills/example/references/guide.md", "# Guide\n")
+    write(home, ".kiro/skills/example/scripts/check.py", "print('check')\n")
+    write(home, ".kiro/skills/example/assets/icon.txt", "icon\n")
     oversized = home / ".kiro/steering/oversized.md"
     oversized.parent.mkdir(parents=True, exist_ok=True)
     oversized.write_bytes(b"x" * (MAX_READABLE_BYTES + 1))

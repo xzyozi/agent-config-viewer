@@ -44,3 +44,14 @@ test("keeps an available provider when another provider is absent", async ({ pag
     await page.getByRole("tab", { name: "Kiro" }).click();
     await expect(page.getByRole("button", { name: ".kiro/steering/safe.md" })).toBeVisible();
 });
+
+test("shows a read-only Skill bundle migration plan", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: ".kiro/skills/example/SKILL.md" }).click();
+    await page.getByRole("button", { name: "移行計画を表示" }).click();
+    await expect(page.getByRole("heading", { name: "Skill bundle 移行計画" })).toBeVisible();
+    await expect(page.getByText("検出 6件 / 自動更新候補 3件 / 未更新 3件 / 未解決 2件")).toBeVisible();
+    await expect(page.getByText("SKILL.md:5 [markdown] https://example.invalid — external (external_reference)")).toBeVisible();
+    await expect(page.getByText("SKILL.md:7 [markdown] ../other.md — outside_bundle (parent_traversal)")).toBeVisible();
+    await expect(page.getByText("対象: .kiro/skills/example")).toBeVisible();
+});
