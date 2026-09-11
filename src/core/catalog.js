@@ -31,6 +31,16 @@ export class Catalog {
         if (!isKiroSkill(fileEntry)) throw { code: "read_failed" };
         return this.source.getSkillMigrationPlan(fileEntry.id);
     }
+
+    async copySkillBundle(fileEntry, snapshotDigest, destinationName) {
+        if (!isKiroSkill(fileEntry)) throw { code: "read_failed" };
+        return this.source.copySkillBundle(fileEntry.id, { snapshotDigest, destinationName });
+    }
+
+    async rescan() {
+        this.source.refresh();
+        return this.discover();
+    }
 }
 
 function isKiroSkill(fileEntry) {

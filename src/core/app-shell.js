@@ -39,13 +39,33 @@ export class AppShell {
     async planSkillMigration() {
         const fileEntry = this.findFile(this.browseState?.selectedFileId);
         if (!fileEntry) return;
-        this.browseState = { ...this.browseState, migrationPlan: { status: "planning", fileId: fileEntry.id } };
+        this.browseState = { ...this.browseState, migrationPlan: { status: "planning", fileId: fileEntry.id }, migrationCopy: null };
         this.renderBrowse();
         try {
             const plan = await this.catalog.planSkillMigration(fileEntry);
             this.setMigrationPlan(fileEntry.id, { status: "ready", fileId: fileEntry.id, plan });
         } catch (error) {
             this.setMigrationPlan(fileEntry.id, { status: "error", fileId: fileEntry.id, code: error?.code ?? "read_failed" });
+        }
+    }
+
+    async copySkillBundle(destinationName, confirmed) {
+        const fileEntry = this.findFile(this.browseState?.selectedFileId);
+        const migrationPlan = this.browseState?.migrationPlan;
+        if (!fileEntry || migrationPlan?.status !== "ready" || migrationPlan.fileId !== fileEntry.id || this.browseState?.migrationCopy?.status === "copying" || !confirmed || !isDestinationName(destinationName)) return;
+        const normalizedName = destinationName.trim();
+        this.browseState = { ...this.browseState, migrationCopy: { status: "copying" } };
+        this.renderBrowse();
+        try {
+            const result = await this.catalog.copySkillBundle(fileEntry, migrationPlan.plan.snapshotDigest, normalizedName);
+            this.view.renderScanning();
+            const rescanState = await this.catalog.rescan();
+            this.browseState = { ...rescanState, selectedProviderId: "kiro", copyResult: result };
+            this.renderBrowse();
+        } catch (error) {
+            if (this.browseState?.selectedFileId !== fileEntry.id) return;
+            this.browseState = { ...this.browseState, migrationCopy: { status: "error", code: copyErrorCode(error?.code) } };
+            this.renderBrowse();
         }
     }
 
@@ -78,6 +98,16 @@ export class AppShell {
             (fileId) => this.selectFile(fileId),
             () => this.clearSelection(),
             () => this.planSkillMigration(),
+            (destinationName, confirmed) => this.copySkillBundle(destinationName, confirmed),
         );
     }
+}
+
+function isDestinationName(destinationName) {
+    const normalizedName = typeof destinationName === "string" ? destinationName.trim() : "";
+    return Boolean(normalizedName) && ![".", ".."].includes(normalizedName) && !/[\\/:\0]/.test(normalizedName);
+}
+
+function copyErrorCode(code) {
+    return ["stale_plan", "destination_conflict", "copy_failed", "read_failed"].includes(code) ? code : "copy_failed";
 }

@@ -37,6 +37,24 @@ export class LocalConfigSource {
         return payload;
     }
 
+    async copySkillBundle(fileId, { snapshotDigest, destinationName }) {
+        const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/migration-copy`, {
+            method: "POST",
+            headers: { Accept: "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({ snapshotDigest, destinationName, confirmed: true }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new FileReadError(copyErrorCode(payload?.code));
+        if (!payload || payload.status !== "copied" || typeof payload.bundlePath !== "string" || payload.snapshotDigest !== snapshotDigest) {
+            throw new FileReadError("copy_failed");
+        }
+        return payload;
+    }
+
+    refresh() {
+        this.results = null;
+    }
+
     async load() {
         if (this.results) return this.results;
         const response = await this.fetchFn(CATALOG_PATH, { headers: { Accept: "application/json" } });
@@ -50,6 +68,10 @@ export class LocalConfigSource {
 
 function isPlanSummary(summary) {
     return summary && ["detected", "updatable", "notUpdated", "unresolved"].every((key) => Number.isInteger(summary[key]) && summary[key] >= 0);
+}
+
+function copyErrorCode(code) {
+    return ["stale_plan", "destination_conflict", "copy_failed", "read_failed"].includes(code) ? code : "copy_failed";
 }
 
 function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" }; }
