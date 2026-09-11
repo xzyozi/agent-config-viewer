@@ -19,14 +19,14 @@ export class AppShell {
 
     selectProvider(providerId) {
         if (!this.browseState?.providerResults.some((result) => result.providerId === providerId)) return;
-        this.browseState = { ...this.browseState, selectedProviderId: providerId, selectedFileId: null, preview: null, migrationPlan: null };
+        this.browseState = { ...this.browseState, selectedProviderId: providerId, selectedFileId: null, preview: null, migrationPlan: null, migrationCopy: null, copyResult: null };
         this.renderBrowse();
     }
 
     async selectFile(fileId) {
         const fileEntry = this.findFile(fileId);
         if (!fileEntry) return;
-        this.browseState = { ...this.browseState, selectedFileId: fileId, preview: { status: "reading", fileId }, migrationPlan: null };
+        this.browseState = { ...this.browseState, selectedFileId: fileId, preview: { status: "reading", fileId }, migrationPlan: null, migrationCopy: null, copyResult: null };
         this.renderBrowse();
         try {
             const content = await this.catalog.readText(fileEntry);
@@ -39,7 +39,7 @@ export class AppShell {
     async planSkillMigration() {
         const fileEntry = this.findFile(this.browseState?.selectedFileId);
         if (!fileEntry) return;
-        this.browseState = { ...this.browseState, migrationPlan: { status: "planning", fileId: fileEntry.id }, migrationCopy: null };
+        this.browseState = { ...this.browseState, migrationPlan: { status: "planning", fileId: fileEntry.id }, migrationCopy: null, copyResult: null };
         this.renderBrowse();
         try {
             const plan = await this.catalog.planSkillMigration(fileEntry);
@@ -54,7 +54,7 @@ export class AppShell {
         const migrationPlan = this.browseState?.migrationPlan;
         if (!fileEntry || migrationPlan?.status !== "ready" || migrationPlan.fileId !== fileEntry.id || this.browseState?.migrationCopy?.status === "copying" || !confirmed || !isDestinationName(destinationName)) return;
         const normalizedName = destinationName.trim();
-        this.browseState = { ...this.browseState, migrationCopy: { status: "copying" } };
+        this.browseState = { ...this.browseState, migrationCopy: { status: "copying", destinationName: normalizedName } };
         this.renderBrowse();
         try {
             const result = await this.catalog.copySkillBundle(fileEntry, migrationPlan.plan.snapshotDigest, normalizedName);
@@ -64,14 +64,14 @@ export class AppShell {
             this.renderBrowse();
         } catch (error) {
             if (this.browseState?.selectedFileId !== fileEntry.id) return;
-            this.browseState = { ...this.browseState, migrationCopy: { status: "error", code: copyErrorCode(error?.code) } };
+            this.browseState = { ...this.browseState, migrationCopy: { status: "error", code: copyErrorCode(error?.code), destinationName: normalizedName } };
             this.renderBrowse();
         }
     }
 
     clearSelection() {
         if (!this.browseState?.selectedFileId) return;
-        this.browseState = { ...this.browseState, selectedFileId: null, preview: null, migrationPlan: null };
+        this.browseState = { ...this.browseState, selectedFileId: null, preview: null, migrationPlan: null, migrationCopy: null, copyResult: null };
         this.renderBrowse();
     }
 
@@ -105,7 +105,15 @@ export class AppShell {
 
 function isDestinationName(destinationName) {
     const normalizedName = typeof destinationName === "string" ? destinationName.trim() : "";
-    return Boolean(normalizedName) && ![".", ".."].includes(normalizedName) && !/[\\/:\0]/.test(normalizedName);
+    const reservedNames = new Set(["con", "prn", "aux", "nul", ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`), ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`)]);
+    return Boolean(normalizedName)
+        && normalizedName === destinationName
+        && normalizedName.length <= 128
+        && ![".", ".."].includes(normalizedName)
+        && !normalizedName.toLowerCase().startsWith(".skill-copy-")
+        && !reservedNames.has(normalizedName.toLowerCase())
+        && !normalizedName.endsWith(".")
+        && !/[\\/:<>"|?*\0\x00-\x1f]/.test(normalizedName);
 }
 
 function copyErrorCode(code) {

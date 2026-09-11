@@ -20,7 +20,7 @@ export class BrowserView {
         this.renderMessage("設定内容や詳細な例外情報は表示しません。", "notice");
     }
 
-    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan) {
+    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle) {
         const results = browseState.providerResults;
         const selected = results.find((result) => result.providerId === browseState.selectedProviderId) ?? results[0];
         this.setStatus("起動ユーザーのホームにある許可済み設定ディレクトリを表示しています。");
@@ -35,7 +35,7 @@ export class BrowserView {
         panel.setAttribute("role", "tabpanel");
         panel.setAttribute("tabindex", "0");
         panel.setAttribute("aria-labelledby", `tab-${selected.providerId}`);
-        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, onFileSelect, onSelectionClear, onMigrationPlan);
+        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle);
         this.catalog.replaceChildren(tabs, panel);
     }
 
@@ -64,10 +64,11 @@ export class BrowserView {
         queueMicrotask(() => this.document.querySelector(`#tab-${results[next].providerId}`)?.focus());
     }
 
-    renderProvider(panel, result, preview, migrationPlan, onFileSelect, onSelectionClear, onMigrationPlan) {
+    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle) {
         const title = this.document.createElement("h2");
         title.textContent = result.label;
         panel.append(title);
+        if (result.providerId === "kiro" && copyResult?.status === "copied") panel.append(copyResultSection(this.document, copyResult));
         if (result.status !== "ok") {
             appendText(this.document, panel, providerMessage(result.status), "empty");
             return;
@@ -87,7 +88,7 @@ export class BrowserView {
         }
         const layout = this.document.createElement("div");
         layout.className = "browse-layout";
-        layout.append(files, previewSection(this.document, preview, selectedFile, migrationPlan, onSelectionClear, onMigrationPlan));
+        layout.append(files, previewSection(this.document, preview, selectedFile, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle));
         panel.append(layout);
     }
 
@@ -103,7 +104,7 @@ function appendText(document, parent, text, className) { const element = documen
 function providerMessage(status) { return { not_found: "このユーザーのホームには対象ディレクトリがありません。", permission_denied: "対象ディレクトリへのアクセスが許可されませんでした。", list_failed: "対象ディレクトリの一覧を取得できませんでした。" }[status]; }
 function groupByCategory(entries) { const groups = new Map(); for (const entry of entries) { const group = groups.get(entry.categoryName) ?? []; group.push(entry); groups.set(entry.categoryName, group); } return groups; }
 function categorySection(document, name, entries, onFileSelect, selectedFileId) { const section = document.createElement("div"); section.className = "category"; const title = document.createElement("h3"); title.textContent = name; const list = document.createElement("ul"); for (const entry of entries) { const item = document.createElement("li"); const button = document.createElement("button"); button.className = "file-entry"; button.type = "button"; button.textContent = entry.relativePath; if (entry.id === selectedFileId) { button.classList.add("is-selected"); button.setAttribute("aria-current", "true"); } button.addEventListener("click", () => onFileSelect(entry.id)); item.append(button); list.append(item); } section.append(title, list); return section; }
-function previewSection(document, preview, fileEntry, migrationPlan, onSelectionClear, onMigrationPlan) {
+function previewSection(document, preview, fileEntry, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle) {
     const section = document.createElement("section");
     section.className = "file-preview";
     const header = document.createElement("div");
@@ -143,11 +144,11 @@ function previewSection(document, preview, fileEntry, migrationPlan, onSelection
     const content = document.createElement("pre");
     content.textContent = preview.content;
     section.append(name, content);
-    if (migrationPlan) section.append(migrationPlanSection(document, migrationPlan));
+    if (migrationPlan) section.append(migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle));
     return section;
 }
 
-function migrationPlanSection(document, migrationPlan) {
+function migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle) {
     const section = document.createElement("section");
     section.className = "migration-plan";
     const title = document.createElement("h4");
@@ -166,7 +167,60 @@ function migrationPlanSection(document, migrationPlan) {
     appendText(document, section, `検出 ${plan.summary.detected}件 / 自動更新候補 ${plan.summary.updatable}件 / 未更新 ${plan.summary.notUpdated}件 / 未解決 ${plan.summary.unresolved}件`, "migration-summary");
     appendPlanEntries(document, section, "参照明細", plan.references, (reference) => `${reference.sourcePath}:${reference.line} [${reference.kind}] ${reference.target} — ${reference.status}${reference.reason ? ` (${reference.reason})` : ""}`);
     appendPlanEntries(document, section, "除外・警告", plan.warnings, (warning) => `${warning.path} — ${warning.reason}`);
+    section.append(migrationCopyControls(document, migrationCopy, onCopySkillBundle));
     return section;
+}
+
+function migrationCopyControls(document, migrationCopy, onCopySkillBundle) {
+    const controls = document.createElement("div");
+    controls.className = "migration-copy-controls";
+    const heading = document.createElement("h5");
+    heading.textContent = "同一Provider内へコピー";
+    const help = document.createElement("p");
+    help.className = "migration-copy-help";
+    help.textContent = "同じ .kiro/skills 直下へ、既存のbundleを上書きせずコピーします。元のbundleは変更しません。";
+    const label = document.createElement("label");
+    label.htmlFor = "migration-copy-destination";
+    label.textContent = "宛先名";
+    const destination = document.createElement("input");
+    destination.className = "migration-copy-destination";
+    destination.id = "migration-copy-destination";
+    destination.type = "text";
+    destination.maxLength = 128;
+    destination.autocomplete = "off";
+    destination.value = migrationCopy?.destinationName ?? "";
+    destination.disabled = migrationCopy?.status === "copying";
+    const confirmation = document.createElement("label");
+    confirmation.className = "migration-copy-confirmation";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = migrationCopy?.status === "copying";
+    checkbox.disabled = migrationCopy?.status === "copying";
+    const confirmationText = document.createElement("span");
+    confirmationText.textContent = "コピー先が存在する場合は中止されること、元のbundleを変更しないことを確認しました。";
+    confirmation.append(checkbox, confirmationText);
+    const copyButton = document.createElement("button");
+    copyButton.className = "migration-copy-button";
+    copyButton.type = "button";
+    copyButton.textContent = migrationCopy?.status === "copying" ? "コピー中…" : "Skill bundleをコピー";
+    const updateCopyButton = () => {
+        copyButton.disabled = migrationCopy?.status === "copying" || !checkbox.checked || !isDestinationName(destination.value);
+    };
+    destination.addEventListener("input", updateCopyButton);
+    checkbox.addEventListener("change", updateCopyButton);
+    copyButton.addEventListener("click", () => onCopySkillBundle(destination.value, checkbox.checked));
+    updateCopyButton();
+    controls.append(heading, help, label, destination, confirmation, copyButton);
+    if (migrationCopy?.status === "error") appendText(document, controls, migrationCopyMessage(migrationCopy.code), "notice");
+    return controls;
+}
+
+function copyResultSection(document, copyResult) {
+    const result = document.createElement("p");
+    result.className = "migration-copy-result";
+    result.setAttribute("role", "status");
+    result.textContent = `Skill bundleをコピーしました: ${copyResult.bundlePath}`;
+    return result;
 }
 
 function appendPlanEntries(document, section, heading, entries, formatter) {
@@ -181,6 +235,28 @@ function appendPlanEntries(document, section, heading, entries, formatter) {
         list.append(item);
     }
     section.append(title, list);
+}
+
+function isDestinationName(destinationName) {
+    const reservedNames = new Set(["con", "prn", "aux", "nul", ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`), ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`)]);
+    return typeof destinationName === "string"
+        && Boolean(destinationName)
+        && destinationName === destinationName.trim()
+        && destinationName.length <= 128
+        && ![".", ".."].includes(destinationName)
+        && !destinationName.toLowerCase().startsWith(".skill-copy-")
+        && !reservedNames.has(destinationName.toLowerCase())
+        && !destinationName.endsWith(".")
+        && !/[\\/:<>"|?*\0\x00-\x1f]/.test(destinationName);
+}
+
+function migrationCopyMessage(code) {
+    return {
+        stale_plan: "表示しているSkill bundleの内容が変わったため、コピーを実行しませんでした。移行計画を再取得してください。",
+        destination_conflict: "指定した宛先はすでに存在するため、コピーを実行しませんでした。別の宛先名を指定してください。",
+        read_failed: "Skill bundleを安全に再確認できなかったため、コピーを実行しませんでした。",
+        copy_failed: "Skill bundleをコピーできませんでした。元のbundleは変更していません。",
+    }[code] ?? "Skill bundleをコピーできませんでした。元のbundleは変更していません。";
 }
 
 function isKiroSkill(fileEntry) {
