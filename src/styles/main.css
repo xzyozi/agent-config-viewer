@@ -200,15 +200,56 @@ li {
   margin: 0;
 }
 
-.clear-selection {
+.file-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .5rem;
+}
+
+.clear-selection,
+.migration-plan-button {
   flex: none;
   padding: .4rem .65rem;
   background: #eaeef2;
   color: #24292f;
 }
 
-.clear-selection:hover {
+.clear-selection:hover,
+.migration-plan-button:hover:not(:disabled) {
   background: #d0d7de;
+}
+
+.migration-plan-button:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+.migration-plan {
+  margin-top: 1rem;
+  border-top: 1px solid #d0d7de;
+  padding-top: 1rem;
+}
+
+.migration-plan h4,
+.migration-plan h5 {
+  margin: 0 0 .5rem;
+}
+
+.migration-plan h5 {
+  margin-top: 1rem;
+  font-size: .9rem;
+}
+
+.migration-summary {
+  margin: .5rem 0;
+  font-weight: 700;
+}
+
+.migration-plan-entries {
+  padding-left: 1.25rem;
+  font-family: ui-monospace, monospace;
+  font-size: .85rem;
 }
 
 .preview-name {
