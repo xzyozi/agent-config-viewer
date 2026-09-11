@@ -23,19 +23,13 @@ class SkillMigrationError(Exception):
 
 def plan_skill_migration(file_id: str, file_path: Path, allowed_root: Path, home_root: Path) -> dict[str, object]:
     """Build a read-only migration plan for one direct child of .kiro/skills."""
-    bundle_root, skills_root = validate_skill_root(file_path, allowed_root, home_root)
-    files = list_bundle_files(bundle_root)
-    raw_files = read_bundle_files(files, bundle_root)
+    bundle_root, _ = validate_skill_root(file_path, allowed_root, home_root)
+    _, raw_files, digest = read_bundle_snapshot(bundle_root)
     file_paths = set(raw_files)
     references: list[dict[str, object]] = []
     warnings: list[dict[str, str]] = []
-    digest = hashlib.sha256()
 
     for relative_path, content in raw_files.items():
-        digest.update(relative_path.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(content)
-        digest.update(b"\0")
         if not is_text_candidate(relative_path):
             warnings.append({"path": relative_path, "reason": "excluded_kind"})
             continue
@@ -57,11 +51,221 @@ def plan_skill_migration(file_id: str, file_path: Path, allowed_root: Path, home
     return {
         "fileId": file_id,
         "bundlePath": f"{allowed_root.name}/{bundle_root.relative_to(allowed_root).as_posix()}",
-        "snapshotDigest": digest.hexdigest(),
+        "snapshotDigest": digest,
         "summary": summary,
         "references": references,
         "warnings": warnings,
     }
+
+
+def copy_skill_bundle(
+    file_path: Path,
+    allowed_root: Path,
+    home_root: Path,
+    snapshot_digest: str,
+    destination_name: str,
+) -> dict[str, str]:
+    """Copy a verified Kiro Skill bundle without changing its source."""
+    validate_destination_name(destination_name)
+    bundle_root, skills_root = validate_skill_root(file_path, allowed_root, home_root)
+    directories, raw_files, source_digest = read_bundle_snapshot(bundle_root)
+    if source_digest != snapshot_digest:
+        raise SkillMigrationError("stale_plan")
+
+    destination = skills_root / destination_name
+    ensure_destination_available(destination, skills_root)
+    token = os.urandom(16).hex()
+    stage = skills_root / f".skill-copy-stage-{token}"
+    marker = skills_root / f".skill-copy-marker-{token}"
+    marker_value = f"{token}:{destination_name}".encode("utf-8")
+    published = False
+
+    try:
+        create_owner_marker(marker, marker_value)
+        stage.mkdir(mode=0o700)
+        write_bundle_snapshot(stage, directories, raw_files)
+        stage_directories, stage_files, stage_digest = read_bundle_snapshot(stage)
+        if stage_directories != directories or stage_files != raw_files or stage_digest != source_digest:
+            raise SkillMigrationError("copy_failed")
+
+        current_root, current_skills_root = validate_skill_root(file_path, allowed_root, home_root)
+        if current_root != bundle_root or current_skills_root != skills_root:
+            raise SkillMigrationError("read_failed")
+        current_directories, current_files, current_digest = read_bundle_snapshot(current_root)
+        if current_directories != directories or current_files != raw_files or current_digest != snapshot_digest:
+            raise SkillMigrationError("stale_plan")
+        ensure_destination_available(destination, skills_root)
+        os.rename(stage, destination)
+        published = True
+
+        copied_directories, copied_files, copied_digest = read_bundle_snapshot(destination)
+        if copied_directories != directories or copied_files != raw_files or copied_digest != snapshot_digest:
+            raise SkillMigrationError("copy_failed")
+        remove_owner_marker(marker, marker_value)
+    except SkillMigrationError:
+        cleanup_owned_copy(stage, skills_root, marker, marker_value)
+        if published:
+            cleanup_owned_copy(destination, skills_root, marker, marker_value)
+        remove_owner_marker_if_owned(marker, marker_value)
+        raise
+    except FileExistsError:
+        cleanup_owned_copy(stage, skills_root, marker, marker_value)
+        if published:
+            cleanup_owned_copy(destination, skills_root, marker, marker_value)
+        remove_owner_marker_if_owned(marker, marker_value)
+        raise SkillMigrationError("destination_conflict") from None
+    except OSError:
+        cleanup_owned_copy(stage, skills_root, marker, marker_value)
+        if published:
+            cleanup_owned_copy(destination, skills_root, marker, marker_value)
+        remove_owner_marker_if_owned(marker, marker_value)
+        raise SkillMigrationError("copy_failed") from None
+    finally:
+        if not published:
+            cleanup_owned_copy(stage, skills_root, marker, marker_value)
+            remove_owner_marker_if_owned(marker, marker_value)
+
+    return {
+        "bundlePath": f"{allowed_root.name}/skills/{destination_name}",
+        "snapshotDigest": snapshot_digest,
+        "status": "copied",
+    }
+
+
+def validate_destination_name(destination_name: str) -> None:
+    if (
+        not destination_name
+        or destination_name in {".", ".."}
+        or destination_name.startswith(".skill-copy-")
+        or any(character in destination_name for character in ("/", "\\", "\0", ":"))
+        or Path(destination_name).is_absolute()
+    ):
+        raise SkillMigrationError("copy_failed")
+
+
+def read_bundle_snapshot(bundle_root: Path) -> tuple[tuple[str, ...], dict[str, bytes], str]:
+    directories = list_bundle_directories(bundle_root)
+    files = list_bundle_files(bundle_root)
+    raw_files = read_bundle_files(files, bundle_root)
+    digest = hashlib.sha256()
+    for relative_path, content in raw_files.items():
+        digest.update(relative_path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(content)
+        digest.update(b"\0")
+    return directories, raw_files, digest.hexdigest()
+
+
+def list_bundle_directories(bundle_root: Path) -> tuple[str, ...]:
+    directories: list[str] = []
+
+    def walk(directory: Path) -> None:
+        try:
+            with os.scandir(directory) as entries:
+                for entry in sorted(entries, key=lambda item: item.name.casefold()):
+                    if entry_is_link(entry):
+                        raise SkillMigrationError()
+                    entry_path = Path(entry.path)
+                    if entry.is_dir(follow_symlinks=False):
+                        directories.append(entry_path.relative_to(bundle_root).as_posix())
+                        walk(entry_path)
+                    elif not entry.is_file(follow_symlinks=False):
+                        raise SkillMigrationError()
+        except SkillMigrationError:
+            raise
+        except OSError:
+            raise SkillMigrationError() from None
+
+    walk(bundle_root)
+    return tuple(directories)
+
+
+def ensure_destination_available(destination: Path, skills_root: Path) -> None:
+    try:
+        if is_path_link(skills_root) or destination.parent != skills_root:
+            raise SkillMigrationError()
+        destination.lstat()
+    except FileNotFoundError:
+        return
+    except SkillMigrationError:
+        raise
+    except OSError:
+        raise SkillMigrationError("copy_failed") from None
+    raise SkillMigrationError("destination_conflict")
+
+
+def write_bundle_snapshot(bundle_root: Path, directories: tuple[str, ...], raw_files: dict[str, bytes]) -> None:
+    try:
+        for relative_directory in directories:
+            directory = bundle_root.joinpath(*PurePosixPath(relative_directory).parts)
+            directory.mkdir(mode=0o700)
+        for relative_path, content in raw_files.items():
+            destination = bundle_root.joinpath(*PurePosixPath(relative_path).parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("xb") as output:
+                output.write(content)
+    except OSError:
+        raise SkillMigrationError("copy_failed") from None
+
+
+def create_owner_marker(marker: Path, marker_value: bytes) -> None:
+    try:
+        with marker.open("xb") as output:
+            output.write(marker_value)
+    except OSError:
+        raise SkillMigrationError("copy_failed") from None
+
+
+def owner_marker_matches(marker: Path, marker_value: bytes) -> bool:
+    try:
+        if is_path_link(marker) or not marker.is_file():
+            return False
+        return marker.read_bytes() == marker_value
+    except OSError:
+        return False
+
+
+def remove_owner_marker(marker: Path, marker_value: bytes) -> None:
+    if not owner_marker_matches(marker, marker_value):
+        raise SkillMigrationError("copy_failed")
+    try:
+        marker.unlink()
+    except OSError:
+        raise SkillMigrationError("copy_failed") from None
+
+
+def remove_owner_marker_if_owned(marker: Path, marker_value: bytes) -> None:
+    if owner_marker_matches(marker, marker_value):
+        try:
+            marker.unlink()
+        except OSError:
+            return
+
+
+def cleanup_owned_copy(target: Path, skills_root: Path, marker: Path, marker_value: bytes) -> None:
+    if not owner_marker_matches(marker, marker_value):
+        return
+    try:
+        if target.parent != skills_root or is_path_link(target) or not target.is_dir():
+            return
+        remove_tree_without_links(target)
+    except (OSError, SkillMigrationError):
+        return
+
+
+def remove_tree_without_links(directory: Path) -> None:
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if entry_is_link(entry):
+                raise SkillMigrationError("copy_failed")
+            entry_path = Path(entry.path)
+            if entry.is_dir(follow_symlinks=False):
+                remove_tree_without_links(entry_path)
+            elif entry.is_file(follow_symlinks=False):
+                entry_path.unlink()
+            else:
+                raise SkillMigrationError("copy_failed")
+    directory.rmdir()
 
 
 def validate_skill_root(file_path: Path, allowed_root: Path, home_root: Path) -> tuple[Path, Path]:
