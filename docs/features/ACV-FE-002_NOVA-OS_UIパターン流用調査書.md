@@ -1,7 +1,7 @@
 ---
 title: "NOVA-OS UIパターン流用調査書"
 document_type: "feature_research"
-version: "1.4"
+version: "1.5"
 status: "proposed"
 created_at: "2026-09-09"
 updated_at: "2026-09-11"
@@ -57,7 +57,7 @@ NOVA-OSのCSS/JavaScript本文は、ユーザー許可の範囲で取込み可�
 - 320pxから768px幅で、プレビュー見出しと操作ボタンが重ならないことを確認する。
 
 ### C-05: Skill bundleの安全なパス移行
-- 状態: 採用元ソースを `src/extensions/nova-file-manager.js` へ取り込み済み（未接続・未実行）。パス変更は必須要件として採用し、`SKILL.md`だけを単体移動する機能にはしない。
+- 状態: Phase 2のread-only移行計画を実装済み。採用元ソースを `src/extensions/nova-file-manager.js` へ取り込み済み（未接続・未実行）であり、コピー・移動・参照更新は未実装。パス変更は必須要件として採用し、`SKILL.md`だけを単体移動する機能にはしない。
 - Skill bundleは `.kiro/skills/<skill-name>/SKILL.md` を根とする同一ディレクトリ全体である。`references/`、`scripts/`、`assets/`、補助READMEなど、通常ファイルかつリンク・再解析ポイントではない配下エントリを対象とする。キャッシュ、バイナリ、非UTF-8、資格情報を含む可能性のある設定は、初期版の参照更新対象外とする。
 - 移行前に、bundle内のUTF-8テキストから標準Markdown相対リンク、`#[[file:...]]`、明示的な`references/`・`scripts/`・`assets/`相対参照を検出する。実体へ解決できる同一bundle内参照だけを自動更新候補とし、URL、絶対パス、`~`始まり、親ディレクトリ遡行、実体なし、曖昧な平文参照は未更新として理由と行番号を表示する。
 - 移行操作は、先に書込みなしの計画を作成して、移動前後のProvider相対パス、検出・更新・未更新・未解決件数、警告を表示する。自由入力パス、Provider横断、上書きは受け付けない。
@@ -116,3 +116,4 @@ NOVA-OSのテーマ移植、ガラス効果、OSデスクトップ、複数ウ�
 | Rev.1.2 | 2026-09-09 | xzyozi | C-01〜C-04を再実装による必須取込み対象、C-05を将来の取込み対象として明確化。                |
 | Rev.1.3 | 2026-09-09 | xzyozi | ユーザー許可に基づき、`js/apps/file-manager.js`の選択・操作フローをC-05の採用元として明記。 |
 | Rev.1.4 | 2026-09-11 | xzyozi | Skill bundle単位の必須パス移行と参照保全を定義し、詳細設計書を正本化。                      |
+| Rev.1.5 | 2026-09-11 | xzyozi | Phase 2のread-only移行計画実装を反映し、コピー・移動が未実装であることを明記。              |
