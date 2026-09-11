@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import os
 import re
 import stat
+import sys
 from pathlib import Path, PurePosixPath
 
 MAX_BUNDLE_FILES = 256
@@ -95,7 +98,7 @@ def copy_skill_bundle(
         if current_directories != directories or current_files != raw_files or current_digest != snapshot_digest:
             raise SkillMigrationError("stale_plan")
         ensure_destination_available(destination, skills_root)
-        os.rename(stage, destination)
+        publish_staged_bundle(stage, destination)
         published = True
 
         copied_directories, copied_files, copied_digest = read_bundle_snapshot(destination)
@@ -133,11 +136,16 @@ def copy_skill_bundle(
 
 
 def validate_destination_name(destination_name: str) -> None:
+    reserved_names = {"con", "prn", "aux", "nul", *(f"com{number}" for number in range(1, 10)), *(f"lpt{number}" for number in range(1, 10))}
     if (
         not destination_name
+        or destination_name != destination_name.strip()
+        or len(destination_name) > 128
         or destination_name in {".", ".."}
-        or destination_name.startswith(".skill-copy-")
-        or any(character in destination_name for character in ("/", "\\", "\0", ":"))
+        or destination_name.casefold().startswith(".skill-copy-")
+        or destination_name.casefold() in reserved_names
+        or destination_name.endswith(".")
+        or any(ord(character) < 32 or character in '/\\\0:<>"|?*' for character in destination_name)
         or Path(destination_name).is_absolute()
     ):
         raise SkillMigrationError("copy_failed")
@@ -180,7 +188,30 @@ def list_bundle_directories(bundle_root: Path) -> tuple[str, ...]:
     return tuple(directories)
 
 
-def ensure_destination_available(destination: Path, skills_root: Path) -> None:
+def publish_staged_bundle(stage: Path, destination: Path) -> None:
+    if os.name == "nt":
+        try:
+            os.rename(stage, destination)
+        except FileExistsError:
+            raise SkillMigrationError("destination_conflict") from None
+        return
+    if sys.platform != "linux":
+        raise SkillMigrationError("copy_failed")
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = libc.renameat2
+        renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+        renameat2.restype = ctypes.c_int
+    except (AttributeError, OSError):
+        raise SkillMigrationError("copy_failed") from None
+    if renameat2(-100, os.fsencode(stage), -100, os.fsencode(destination), 1) == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise SkillMigrationError("destination_conflict")
+    raise SkillMigrationError("copy_failed")
+
+
     try:
         if is_path_link(skills_root) or destination.parent != skills_root:
             raise SkillMigrationError()
