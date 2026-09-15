@@ -1,10 +1,10 @@
 ---
 title: "Skill bundleパス移行詳細設計書"
 document_type: "detailed_design"
-version: "1.0"
-status: "proposed"
+version: "1.1"
+status: "partially_implemented"
 created_at: "2026-09-11"
-updated_at: "2026-09-11"
+updated_at: "2026-09-15"
 author: "xzyozi"
 purpose: "Skillの内部構造と参照を保全し、同一Provider内で安全にパス変更するための計画・コピー・移動の制御仕様を定義する。"
 related_documents:
@@ -13,16 +13,16 @@ related_documents:
   - "../review/ACV-RV-002_ローカルサーバー安全境界レビュー.md"
 ---
 # Skill bundleパス移行詳細設計書
-| 項目     | 内容                |
-| :------- | :------------------ |
-| 文書番号 | ACV-DD-002          |
-| 版数     | Rev.1.0（新規作成） |
-| 状態     | 提案                |
+| 項目     | 内容                               |
+| :------- | :--------------------------------- |
+| 文書番号 | ACV-DD-002                         |
+| 版数     | Rev.1.1                            |
+| 状態     | Phase 3実装済み／Phase 4以降は提案 |
 
 ## 1. 結論と対象
 パス変更は必須要件とする。ただし、`SKILL.md`を単独でコピー・移動してはならない。`.kiro/skills/<skill-name>/SKILL.md`を根に持つディレクトリ全体を**Skill bundle**として扱い、参照を解析してから計画・コピー・移動する。
 
-初期実装は副作用のない移行計画の生成までとする。書込みは同一Provider内の非上書きコピーを先に導入し、移動はコピー、参照更新、整合性検証、復旧ジャーナル、実行直前再検証の完了後に別Phaseで導入する。
+Phase 2として副作用のない移行計画を実装した。Phase 3として、同一Provider内の非上書きコピーを実装した。コピーはbundle内の通常ファイル・通常ディレクトリをステージングへ複製して完全一致を確認し、元bundleを変更しない。同一階層構造を保つため、bundle内部の相対参照は書き換えない。移動、Provider横断、任意パス、既存宛先への上書き、参照更新はPhase 4以降の別機能とする。
 
 ## 2. Bundleの定義と不変条件
 - bundle rootはKiro Providerの`.kiro/skills`配下にあり、根の`SKILL.md`を持つ通常ディレクトリである。
@@ -70,10 +70,26 @@ Interfaceは「カタログが発行したSkillのFile IDを受け、移行計�
 
 `file-id`が失効・偽造・非Skill・リンク・許可root外・読取不可の場合は、HTTP 404と`{"code":"read_failed"}`を返す。計画内に更新不能な参照があっても計画全体を失敗にせず、個別結果として返す。
 
-## 6. 将来のコピー・移動契約
-コピー実行は、表示済み計画のdigest、同一Provider内の許可済み宛先名、明示確認を必須とする。実行直前にsource、bundle配下、宛先親の全エントリを再解析し、リンク・再解析ポイント、競合、bundle外逸脱、計画の陳腐化を検出したら書込み前に中止する。
+## 6. Phase 3コピー契約（実装済み）
+コピー実行は`POST /api/files/<file-id>/migration-copy`だけで受け付ける。クエリ、任意パス、追加フィールド、重複キーは受け付けない。リクエスト本文は、表示済み計画のdigest、同一Provider内の一階層宛先名、`confirmed: true`だけを含むJSONとする。
 
-コピーは専用ステージングに作成し、各ファイルのコピー・参照更新・UTF-8再読込・参照再解析を完了してから宛先へ確定する。失敗時はステージングだけを除去し、元bundleを変更しない。移動はこの成功済みコピーを前提とし、確定後の再検証と復旧ジャーナルが成功した場合に限り元bundleを削除する。書込み結果・ジャーナルは本文、絶対パス、資格情報を含めない。
+```json
+{
+  "snapshotDigest": "sha256-hex",
+  "destinationName": "example-copy",
+  "confirmed": true
+}
+```
+
+- 対象はカタログが発行したKiro Providerの直接子bundleだけとし、`SKILL.md`、bundle root、skills rootを実行直前に再検証する。
+- 宛先名は空文字、`.`、`..`、区切り文字、絶対パス、制御文字、Windows予約名、予約prefix、末尾の`.`、既存宛先を拒否する。Provider横断と上書きはできない。
+- sourceをbytes単位でsnapshot化し、表示済みdigestと異なる場合は`stale_plan`で中止する。リンク／Windows再解析ポイント、通常ファイル・通常ディレクトリ以外、256ファイルまたは8MiB超過も中止する。
+- 専用ステージングへ空ディレクトリを含めて複製し、source snapshotと完全一致することを確認する。確定後も宛先snapshotを再検証する。同一相対階層を保持するため、bundle内部の相対参照は書き換えない。
+- Linuxでは`renameat2(RENAME_NOREPLACE)`、Windowsでは既存宛先で失敗するrenameを用い、既存宛先を原子的に上書きしない。これらを安全に利用できない環境では確定せず`copy_failed`で中止する。
+- 失敗時は所有確認済みのステージングだけを除去し、sourceを変更しない。成功時は`{"bundlePath":".kiro/skills/example-copy","snapshotDigest":"…","status":"copied"}`だけを返し、本文・絶対パス・OS例外は返さない。
+- 固定エラーは`read_failed`、`stale_plan`、`destination_conflict`、`copy_failed`である。UIの確認checkboxは操作意思を明示するためのものであり、同一ユーザー権限の別プロセスに対する認可ではない。
+
+移動は、この成功済みコピーを前提とし、参照更新、確定後の再検証、復旧ジャーナル、実行直前の明示確認を別Phaseで満たした場合にだけ導入する。
 
 ## 7. 処理フロー
 ```mermaid
@@ -81,13 +97,20 @@ sequenceDiagram
     participant UI as BrowserView
     participant App as AppShell
     participant Planner as SkillMigrationPlanner
+    participant Copier as SkillBundleCopier
     participant FS as Local filesystem
     UI->>App: Skillを選択して計画を要求
     App->>Planner: opaque File ID
     Planner->>FS: bundleと参照を再検証・解析
-    FS-->>Planner: 安全な相対メタデータ
+    FS-->>Planner: 安全な相対メタデータとdigest
     Planner-->>App: 移行計画または固定エラー
     App-->>UI: 件数・警告・参照明細を表示
+    UI->>App: 宛先名と明示確認でコピーを要求
+    App->>Copier: File ID、digest、宛先名
+    Copier->>FS: source再検証、stage複製、非上書き確定
+    FS-->>Copier: 検証済みコピーまたは固定エラー
+    Copier-->>App: 相対bundlePathまたは固定エラー
+    App-->>UI: 成功通知または安全な失敗通知
 ```
 
 ## 8. テスト・受入条件
@@ -95,9 +118,11 @@ sequenceDiagram
 - 計画取得後もファイル内容、配置、更新日時を変更しない。
 - 偽造ID、失効ID、非Skill ID、リンク、2MiB超過、UTF-8失敗を固定エラーで拒否する。
 - 正常な同一bundle参照だけが`updatable`となり、それ以外は更新候補にしない。
-- 将来の書込みPhaseでは、競合拒否、計画陳腐化拒否、失敗時の元bundle保全、コピー後の参照再解析、移動キャンセルを追加検証する。
+- Phase 3では、正常コピー、競合拒否、計画陳腐化拒否、失敗時のsource保全、空ディレクトリを含むコピー後のsnapshot完全一致を確認する。
+- 本更新時点でPython構文検査、変更ファイルの診断、`git diff --check`は実施済みである。コピーのブラウザE2EはローカルNode.js未導入のため未実行であり、受入確認として残す。
 
 ## 9. 改訂履歴
-| 版数    | 改訂日     | 変更者 | 変更内容                                                   |
-| :------ | :--------- | :----- | :--------------------------------------------------------- |
-| Rev.1.0 | 2026-09-11 | xzyozi | Skill bundleを単位とする必須パス移行の詳細設計を新規作成。 |
+| 版数    | 改訂日     | 変更者 | 変更内容                                                                |
+| :------ | :--------- | :----- | :---------------------------------------------------------------------- |
+| Rev.1.0 | 2026-09-11 | xzyozi | Skill bundleを単位とする必須パス移行の詳細設計を新規作成。              |
+| Rev.1.1 | 2026-09-15 | xzyozi | Phase 3の同一Provider内・非上書きコピーの実装、制約、未検証事項を反映。 |
