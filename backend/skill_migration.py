@@ -212,6 +212,7 @@ def publish_staged_bundle(stage: Path, destination: Path) -> None:
     raise SkillMigrationError("copy_failed")
 
 
+def ensure_destination_available(destination: Path, skills_root: Path) -> None:
     try:
         if is_path_link(skills_root) or destination.parent != skills_root:
             raise SkillMigrationError()
