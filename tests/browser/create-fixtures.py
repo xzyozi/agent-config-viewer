@@ -20,6 +20,7 @@ def main() -> None:
     write(home, ".kiro/skills/example/references/guide.md", "# Guide\n")
     write(home, ".kiro/skills/example/scripts/check.py", "print('check')\n")
     write(home, ".kiro/skills/example/assets/icon.txt", "icon\n")
+    write(home, ".kiro/skills/existing/SKILL.md", "# Existing skill\n")
     oversized = home / ".kiro/steering/oversized.md"
     oversized.parent.mkdir(parents=True, exist_ok=True)
     oversized.write_bytes(b"x" * (MAX_READABLE_BYTES + 1))
