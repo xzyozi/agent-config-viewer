@@ -55,3 +55,30 @@ test("shows a read-only Skill bundle migration plan", async ({ page }) => {
     await expect(page.getByText("SKILL.md:7 [markdown] ../other.md — outside_bundle (parent_traversal)")).toBeVisible();
     await expect(page.getByText("対象: .kiro/skills/example")).toBeVisible();
 });
+
+test("copies a Skill bundle after explicit confirmation without changing its source", async ({ page }) => {
+    const sourceBefore = await readSkillBundle("example");
+    await page.goto("/");
+    await page.getByRole("button", { name: ".kiro/skills/example/SKILL.md" }).click();
+    await page.getByRole("button", { name: "移行計画を表示" }).click();
+    await expect(page.getByRole("heading", { name: "Skill bundle 移行計画" })).toBeVisible();
+    await page.getByLabel("宛先名").fill("example-copy");
+    await page.getByRole("checkbox", { name: /コピー先が存在する場合は中止されること/ }).check();
+    const copyButton = page.getByRole("button", { name: "Skill bundleをコピー" });
+    await expect(copyButton).toBeEnabled();
+    await copyButton.click();
+    await expect(page.getByText("Skill bundleをコピーしました: .kiro/skills/example-copy")).toBeVisible();
+    await expect(page.getByRole("button", { name: ".kiro/skills/example-copy/SKILL.md" })).toBeVisible();
+    await expect(readSkillBundle("example")).resolves.toEqual(sourceBefore);
+    await expect(readSkillBundle("example-copy")).resolves.toEqual(sourceBefore);
+});
+
+async function readSkillBundle(name) {
+    const bundleRoot = join(process.env.E2E_HOME, ".kiro", "skills", name);
+    return Promise.all([
+        "SKILL.md",
+        "references/guide.md",
+        "scripts/check.py",
+        "assets/icon.txt",
+    ].map((relativePath) => readFile(join(bundleRoot, relativePath))));
+}
