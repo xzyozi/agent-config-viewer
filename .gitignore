@@ -12,3 +12,6 @@ blob-report/
 
 # Local IDE settings
 .vscode/
+
+# Kiro local settings
+.kiro/
