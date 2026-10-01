@@ -6,29 +6,55 @@ from pathlib import Path
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 
 
-def write(home: Path, relative_path: str, content: str) -> None:
-    target = home / relative_path
+def write(root: Path, relative_path: str, content: str) -> None:
+    target = root / relative_path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
 
 
+def write_bytes(root: Path, relative_path: str, content: bytes) -> None:
+    target = root / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+
+
 def main() -> None:
-    home = Path(sys.argv[1])
-    write(home, ".kiro/steering/safe.md", '# Kiro safe\n<script id="unsafe">window.e2eExecuted = true</script>\n')
-    write(home, ".kiro/steering/ignored.txt", "not an allowed file\n")
-    write(home, ".kiro/skills/example/SKILL.md", "# Example skill\n[Guide](references/guide.md)\n#[[file:scripts/check.py]]\n`assets/icon.txt`\n[External](https://example.invalid)\n[Missing](references/missing.md)\n[Outside](../other.md)\n")
-    write(home, ".kiro/skills/example/references/guide.md", "# Guide\n")
-    write(home, ".kiro/skills/example/scripts/check.py", "print('check')\n")
-    write(home, ".kiro/skills/example/assets/icon.txt", "icon\n")
-    write(home, ".kiro/skills/existing/SKILL.md", "# Existing skill\n")
-    oversized = home / ".kiro/steering/oversized.md"
+    root = Path(sys.argv[1])
+    write(root, ".kiro/steering/safe.md", """# Kiro safe
+
+<script id="unsafe">window.e2eExecuted = true</script>
+
+## Features
+
+- **Markdown** preview
+- `safe` text
+
+| Name | Value |
+| --- | --- |
+| Scope | Kiro |
+
+[Guide](../skills/example/SKILL.md)
+[External](https://example.invalid)
+[Unsafe](javascript:alert(1))
+""")
+    write(root, ".kiro/steering/notes.txt", "plain text in the Kiro tree\n")
+    write(root, ".kiro/steering/safe.md.bak", "backup must not appear\n")
+    write_bytes(root, ".kiro/steering/icon.bin", b"\x00\x01binary")
+    write(root, ".kiro/skills/example/SKILL.md", """# Example skill
+[Guide](references/guide.md)
+#[[file:scripts/check.py]]
+`assets/icon.txt`
+[External](https://example.invalid)
+[Missing](references/missing.md)
+[Outside](../other.md)
+""")
+    write(root, ".kiro/skills/example/references/guide.md", "# Guide\n")
+    write(root, ".kiro/skills/example/scripts/check.py", "print('check')\n")
+    write(root, ".kiro/skills/example/assets/icon.txt", "icon\n")
+    write(root, ".kiro/skills/existing/SKILL.md", "# Existing skill\n")
+    oversized = root / ".kiro/steering/oversized.md"
     oversized.parent.mkdir(parents=True, exist_ok=True)
     oversized.write_bytes(b"x" * (MAX_READABLE_BYTES + 1))
-    write(home, "CLAUDE.md", "# Claude global instruction\n")
-    write(home, ".claude/rules/example.md", "# Claude rule\n")
-    write(home, "GEMINI.md", "# Gemini global instruction\n")
-    write(home, ".gemini/commands/example.toml", 'name = "example"\n')
-    write(home, ".codex/config.toml", 'model = "test"\n')
 
 
 if __name__ == "__main__":

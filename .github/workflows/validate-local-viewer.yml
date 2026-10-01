@@ -5,6 +5,7 @@ on:
     branches: [main, develop]
     paths:
       - "server.py"
+      - "backend/**/*.py"
       - "cli.py"
       - "index.html"
       - "src/**/*.js"
@@ -16,6 +17,7 @@ on:
     branches: [main, develop]
     paths:
       - "server.py"
+      - "backend/**/*.py"
       - "cli.py"
       - "index.html"
       - "src/**/*.js"
@@ -41,15 +43,15 @@ jobs:
 
       - name: Compile Python entry points
         shell: bash
-        run: python -m py_compile server.py cli.py
+        run: python -m py_compile server.py cli.py backend/kiro_catalog.py tests/browser/create-fixtures.py
 
-      - name: Run CLI with an empty home directory
+      - name: Run CLI with an empty project root
         shell: bash
         run: |
           set -euo pipefail
-          empty_home="$RUNNER_TEMP/agent-config-viewer-empty-home"
-          mkdir -p "$empty_home"
-          HOME="$empty_home" python cli.py list --json > "$RUNNER_TEMP/catalog.json"
+          empty_root="$RUNNER_TEMP/agent-config-viewer-empty-root"
+          mkdir -p "$empty_root"
+          AGENT_CONFIG_VIEWER_PROJECT_ROOT="$empty_root" python cli.py list --json > "$RUNNER_TEMP/catalog.json"
           python - "$RUNNER_TEMP/catalog.json" <<'PY'
           import json
           import sys
@@ -57,7 +59,7 @@ jobs:
           with open(sys.argv[1], encoding="utf-8") as catalog_file:
               results = json.load(catalog_file)["providerResults"]
 
-          assert [result["providerId"] for result in results] == ["kiro", "claude", "gemini", "codex"]
+          assert [result["providerId"] for result in results] == ["kiro"]
           assert all(result["status"] == "not_found" for result in results)
           assert all(not result["fileEntries"] for result in results)
           PY
@@ -94,19 +96,19 @@ jobs:
           npm install --ignore-scripts
           npx playwright install --with-deps chromium
 
-      - name: Create isolated provider fixtures
+      - name: Create isolated Kiro fixtures
         shell: bash
         run: |
           set -euo pipefail
-          e2e_home="$RUNNER_TEMP/agent-config-viewer-e2e-home"
-          python tests/browser/create-fixtures.py "$e2e_home"
-          echo "E2E_HOME=$e2e_home" >> "$GITHUB_ENV"
+          e2e_root="$RUNNER_TEMP/agent-config-viewer-e2e-home"
+          python tests/browser/create-fixtures.py "$e2e_root"
+          echo "E2E_HOME=$e2e_root" >> "$GITHUB_ENV"
 
       - name: Start local viewer
         shell: bash
         run: |
           set -euo pipefail
-          HOME="$E2E_HOME" python server.py > "$RUNNER_TEMP/local-viewer-server.log" 2>&1 &
+          AGENT_CONFIG_VIEWER_PROJECT_ROOT="$E2E_HOME" python server.py > "$RUNNER_TEMP/local-viewer-server.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/local-viewer-server.pid"
           for attempt in {1..30}; do
             if python -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:8765/api/catalog', timeout=1).read()" >/dev/null 2>&1; then
