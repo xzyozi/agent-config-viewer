@@ -12,11 +12,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
-from backend.kiro_catalog import is_binary_content, scan_kiro_root
+from backend.kiro_catalog import is_binary_content, path_is_link, scan_kiro_root
 from backend.skill_migration import SkillMigrationError, copy_skill_bundle, plan_skill_migration
 
-DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parent
-PROJECT_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_PROJECT_ROOT", DEFAULT_PROJECT_ROOT)).resolve()
+APP_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_PROJECT_ROOT", APP_ROOT)).resolve()
 HOME_ROOT = Path.home().resolve()
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 MAX_COPY_REQUEST_BYTES = 4096
@@ -163,10 +163,10 @@ def file_content_payload(file_id: str) -> dict[str, str]:
         raise FileContentError("read_failed")
     file_path, allowed_root = record
     try:
-        if file_path.is_symlink():
+        if path_is_link(file_path):
             raise FileContentError("read_failed")
         resolved_path = file_path.resolve(strict=True)
-        if not resolved_path.is_file() or not is_within(resolved_path, allowed_root):
+        if path_is_link(resolved_path) or not resolved_path.is_file() or not is_within(resolved_path, allowed_root):
             raise FileContentError("read_failed")
         if resolved_path.stat().st_size > MAX_READABLE_BYTES:
             raise FileContentError("too_large")
@@ -229,7 +229,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
             self.send_content(content_file_id)
             return
         if request.path == "/":
-            self.send_static(PROJECT_ROOT / "index.html")
+            self.send_static(APP_ROOT / "index.html")
             return
         self.send_source_file(unquote(request.path))
 
@@ -324,8 +324,8 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         if not relative.parts or relative.parts[0] != "src" or any(part in {"", ".", ".."} for part in relative.parts):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        candidate = (PROJECT_ROOT / Path(*relative.parts)).resolve()
-        if not is_within(candidate, PROJECT_ROOT / "src") or candidate.suffix not in {".js", ".css"}:
+        candidate = (APP_ROOT / Path(*relative.parts)).resolve()
+        if not is_within(candidate, APP_ROOT / "src") or candidate.suffix not in {".js", ".css"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         self.send_static(candidate)
