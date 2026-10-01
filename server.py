@@ -12,9 +12,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
+from backend.kiro_catalog import is_binary_content, scan_kiro_root
 from backend.skill_migration import SkillMigrationError, copy_skill_bundle, plan_skill_migration
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_PROJECT_ROOT", DEFAULT_PROJECT_ROOT)).resolve()
 HOME_ROOT = Path.home().resolve()
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 MAX_COPY_REQUEST_BYTES = 4096
@@ -23,10 +25,7 @@ FILE_INDEX_LOCK = threading.RLock()
 FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,}")
 COPY_REQUEST_KEYS = frozenset({"snapshotDigest", "destinationName", "confirmed"})
 PROVIDERS = (
-    {"id": "kiro", "label": "Kiro", "root": ".kiro", "categories": (("Steering", "provider", "steering", ("**/*.md",)), ("Skills", "provider", "skills", ("**/SKILL.md",)), ("Knowledge", "provider", "knowledge", ("**/*.md",)))},
-    {"id": "claude", "label": "Claude", "root": ".claude", "categories": (("Global Instructions", "home", ".", ("CLAUDE.md",)), ("Settings", "provider", ".", ("settings.json",)), ("Rules", "provider", "rules", ("**/*.md",)), ("Skills", "provider", "skills", ("**/SKILL.md",)), ("Commands", "provider", "commands", ("**/*.md",)), ("Agents", "provider", "agents", ("**/*.md",)))},
-    {"id": "gemini", "label": "Gemini", "root": ".gemini", "categories": (("Global Instructions", "home", ".", ("GEMINI.md",)), ("Settings", "provider", ".", ("settings.json",)), ("Commands", "provider", "commands", ("**/*.toml",)), ("Skills", "provider", "skills", ("**/SKILL.md",)))},
-    {"id": "codex", "label": "Codex", "root": ".codex", "categories": (("Settings", "provider", ".", ("config.toml", "*.config.toml")),)},
+    {"id": "kiro", "label": "Kiro", "root": ".kiro", "categories": (("All", "project", ".", ("**/*",)),)},
 )
 
 
@@ -148,7 +147,7 @@ def file_entry(file_path: Path, base: Path, relative_prefix: str, specification:
 def catalog_payload() -> dict[str, object]:
     next_id = [0]
     file_index: dict[str, tuple[Path, Path]] = {}
-    provider_results = [scan_provider(specification, next_id, file_index) for specification in PROVIDERS]
+    provider_results = [scan_kiro_root(PROJECT_ROOT / ".kiro", next_id, file_index, MAX_READABLE_BYTES)]
     with FILE_INDEX_LOCK:
         FILE_INDEX.clear()
         FILE_INDEX.update(file_index)
@@ -175,6 +174,8 @@ def file_content_payload(file_id: str) -> dict[str, str]:
             content_bytes = source_file.read(MAX_READABLE_BYTES + 1)
         if len(content_bytes) > MAX_READABLE_BYTES:
             raise FileContentError("too_large")
+        if is_binary_content(file_path.name, content_bytes):
+            raise FileContentError("binary")
         return {"fileId": file_id, "content": content_bytes.decode("utf-8")}
     except FileContentError:
         raise
@@ -247,7 +248,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         try:
             self.send_json(file_content_payload(file_id))
         except FileContentError as error:
-            status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE if error.code == "too_large" else HTTPStatus.NOT_FOUND
+            status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE if error.code == "too_large" else HTTPStatus.UNSUPPORTED_MEDIA_TYPE if error.code == "binary" else HTTPStatus.NOT_FOUND
             self.send_json({"code": error.code}, status)
 
     def send_migration_plan(self, file_id: str) -> None:
@@ -259,7 +260,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
             if not record:
                 raise SkillMigrationError()
             file_path, allowed_root = record
-            self.send_json(plan_skill_migration(file_id, file_path, allowed_root, HOME_ROOT))
+            self.send_json(plan_skill_migration(file_id, file_path, allowed_root, PROJECT_ROOT))
         except SkillMigrationError as error:
             self.send_json({"code": error.code}, HTTPStatus.NOT_FOUND)
 
@@ -276,7 +277,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
             result = copy_skill_bundle(
                 file_path,
                 allowed_root,
-                HOME_ROOT,
+                PROJECT_ROOT,
                 request_payload["snapshotDigest"],
                 request_payload["destinationName"],
             )
@@ -349,7 +350,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
 def main() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 8765), LocalOnlyHandler)
     print("Agent Config Viewer: http://127.0.0.1:8765/")
-    print("Read scope: current user's .kiro, .claude, .gemini, and .codex directories only.")
+    print("Read scope: project .kiro directory only.")
     server.serve_forever()
 
 
