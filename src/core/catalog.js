@@ -44,7 +44,9 @@ export class Catalog {
 }
 
 function isKiroSkill(fileEntry) {
-    return fileEntry?.readable && fileEntry.providerId === "kiro" && fileEntry.categoryName === "Skills" && fileEntry.displayName === "SKILL.md";
+    if (!fileEntry?.readable || fileEntry.providerId !== "kiro" || fileEntry.categoryName !== "Skills") return false;
+    const parts = fileEntry.relativePath.toLowerCase().split("/");
+    return parts.length === 4 && parts[0] === ".kiro" && parts[1] === "skills" && parts[3] === "skill.md";
 }
 
-function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" }; }
+function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], tree: null, errorKind: "not_found" }; }

@@ -7,6 +7,8 @@ export class AppShell {
 
     start() { this.scan(); }
 
+    refresh() { return this.scan(); }
+
     async scan() {
         this.view.renderScanning();
         try {
@@ -99,6 +101,7 @@ export class AppShell {
             () => this.clearSelection(),
             () => this.planSkillMigration(),
             (destinationName, confirmed) => this.copySkillBundle(destinationName, confirmed),
+            () => this.refresh(),
         );
     }
 }
