@@ -1,17 +1,19 @@
 # agent-config-viewer
 
-起動したユーザーのホームディレクトリにあるAIエージェント設定を、ローカルだけで一覧表示するアプリケーションです。外部送信、編集、保存は行いません。
+プロジェクト直下の`.kiro`構成を、ローカルだけで確認する閲覧アプリケーションです。ディレクトリツリーからファイルを選択し、MarkdownはStackEditを参考にしたプレビューで表示します。
 
 ## 対象
 
-Providerごとにページ内タブを表示し、次の許可済みパスだけを走査します。
+- 現在のプロジェクトルート直下の`.kiro`だけを走査します。
+- `.kiro`配下の通常ファイルを再帰的に表示します。
+- `.bak`、`.backup`、`.old`、`.orig`、`.swp`、`.swo`、`~`末尾、`.#[...]`形式のバックアップファイルは一覧から除外します。
+- シンボリックリンクとWindowsの再解析ポイントは走査・本文取得の対象外です。
+- バイナリファイルはファイル名、パス、種別、サイズだけを表示し、本文を読みません。
+- UTF-8のテキストファイルは、既存の2MiB上限内で本文を閲覧できます。
+- Markdownは見出し、段落、リスト、コードブロック、表、リンクなどを安全にレンダリングします。
+- `.kiro`内の相対Markdownリンクは、解決できるファイルへの閲覧遷移として扱います。外部HTTPリンクは安全属性付きで開き、未許可のスキームはリンク化しません。
 
-- Kiro: `.kiro/steering/**/*.md`、`.kiro/skills/**/SKILL.md`、`.kiro/knowledge/**/*.md`
-- Claude: ホーム直下の `CLAUDE.md`、`.claude/settings.json`、`rules/**/*.md`、`skills/**/SKILL.md`、`commands/**/*.md`、`agents/**/*.md`
-- Gemini: ホーム直下の `GEMINI.md`、`.gemini/settings.json`、`commands/**/*.toml`、`skills/**/SKILL.md`
-- Codex: `.codex/config.toml`、`.codex/*.config.toml`
-
-Codexの認証情報、履歴、ログなどは一覧対象に含めません。
+通常の構成閲覧は読み取り専用です。既存のIssue #12で実装されたSkill bundleの同一Provider内コピー機能は、選択したSkillから別途実行できます。
 
 ## ローカルでの起動
 
@@ -21,23 +23,34 @@ Pythonが利用できるWindows環境で、リポジトリのルートから次�
 py server.py
 ```
 
-Chromium系ブラウザで <http://127.0.0.1:8765/> を開いてください。サーバーは `127.0.0.1` だけで待受し、任意パスの読取・外部公開・外部通信を行いません。
+Chromium系ブラウザで <http://127.0.0.1:8765/> を開いてください。サーバーは`127.0.0.1`だけで待受し、ブラウザから任意パスを受け取らず、外部通信も行いません。
 
 ## CLI
 
-フロントエンドを使わず、同じ許可済み範囲を確認できます。
+フロントエンドを使わず、プロジェクト`.kiro`の対象ファイル一覧を確認できます。
 
 ```powershell
-# 全Providerの対象ファイルを一覧表示
+# Kiro構成を一覧表示
 py cli.py list
 
-# Geminiだけを一覧表示
-py cli.py list --provider gemini
-
-# 他ツール連携用のJSON出力
+# JSONで出力
 py cli.py list --json
 ```
 
-CLIはファイル本文を読まず、許可済みの相対パスとProviderごとの検出結果だけを表示します。
+CLIはファイル本文を読まず、許可済みの相対パスとKiroの検出結果だけを表示します。
 
-ブラウザでは一覧からファイルを選択すると、2MiB以下のUTF-8テキストをローカルだけでプレーンテキスト表示できます。Markdownも当面はHTMLとして解釈せず、テキストとして表示します。
+## 安全境界
+
+- ブラウザから実パスを指定できません。
+- サーバーはカタログ作成時に不透明なFile IDを発行し、本文取得時にパス・リンク・通常ファイル・サイズ・UTF-8を再検証します。
+- MarkdownのHTMLやスクリプトはDOM APIのテキストノードとして扱い、実行しません。
+- 初期の表示制限は最小限に留めていますが、走査、カタログ生成、本文取得、表示を分離しているため、将来の表示制限や性能対策を追加できます。
+
+## 検証
+
+```powershell
+py -3 -m py_compile server.py cli.py backend/kiro_catalog.py tests/browser/create-fixtures.py
+npm run test:browser
+```
+
+ブラウザE2Eは`.github/workflows/validate-local-viewer.yml`で、一時的なKiroフィクスチャだけを使って実行します。
