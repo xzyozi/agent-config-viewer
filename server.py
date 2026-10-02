@@ -14,7 +14,6 @@ from backend.kiro_catalog import is_binary_content, path_is_link, scan_provider 
 from backend.skill_migration import SkillMigrationError, copy_skill_bundle, plan_skill_migration
 
 APP_ROOT = Path(__file__).resolve().parent
-PROJECT_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_PROJECT_ROOT", APP_ROOT)).resolve()
 HOME_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_HOME_ROOT", Path.home())).resolve()
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 MAX_COPY_REQUEST_BYTES = 4096
@@ -27,7 +26,6 @@ PROVIDERS = (
         "id": "kiro",
         "label": "Kiro",
         "sources": (
-            {"scope": "project", "root": ".kiro", "displayRoot": ".kiro"},
             {"scope": "user", "root": ".kiro", "displayRoot": "~/.kiro"},
         ),
     },
@@ -35,9 +33,7 @@ PROVIDERS = (
         "id": "claude",
         "label": "Claude",
         "sources": (
-            {"scope": "project", "root": ".claude", "displayRoot": ".claude"},
             {"scope": "user", "root": ".claude", "displayRoot": "~/.claude"},
-            {"scope": "project", "root": ".", "displayRoot": ".", "files": ("CLAUDE.md",), "category": "Global Instructions"},
             {"scope": "user", "root": "", "displayRoot": "~", "files": ("CLAUDE.md",), "category": "Global Instructions"},
         ),
     },
@@ -45,9 +41,7 @@ PROVIDERS = (
         "id": "gemini",
         "label": "Gemini",
         "sources": (
-            {"scope": "project", "root": ".gemini", "displayRoot": ".gemini"},
             {"scope": "user", "root": ".gemini", "displayRoot": "~/.gemini"},
-            {"scope": "project", "root": ".", "displayRoot": ".", "files": ("GEMINI.md",), "category": "Global Instructions"},
             {"scope": "user", "root": "", "displayRoot": "~", "files": ("GEMINI.md",), "category": "Global Instructions"},
         ),
     },
@@ -55,9 +49,7 @@ PROVIDERS = (
         "id": "codex",
         "label": "Codex",
         "sources": (
-            {"scope": "project", "root": ".codex", "displayRoot": ".codex"},
             {"scope": "user", "root": ".codex", "displayRoot": "~/.codex"},
-            {"scope": "project", "root": ".", "displayRoot": ".", "files": ("AGENTS.md",), "category": "Global Instructions"},
             {"scope": "user", "root": "", "displayRoot": "~", "files": ("AGENTS.md",), "category": "Global Instructions"},
         ),
     },
@@ -84,7 +76,7 @@ def is_within(path: Path, parent: Path) -> bool:
 def catalog_payload() -> dict[str, object]:
     next_id = [0]
     file_index: dict[str, tuple[Path, Path]] = {}
-    provider_results = [scan_config_provider(specification, PROJECT_ROOT, HOME_ROOT, next_id, file_index, MAX_READABLE_BYTES) for specification in PROVIDERS]
+    provider_results = [scan_config_provider(specification, HOME_ROOT, next_id, file_index, MAX_READABLE_BYTES) for specification in PROVIDERS]
     with FILE_INDEX_LOCK:
         FILE_INDEX.clear()
         FILE_INDEX.update(file_index)
@@ -287,7 +279,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
 def main() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 8765), LocalOnlyHandler)
     print("Agent Config Viewer: http://127.0.0.1:8765/")
-    print("Read scope: project and user configuration roots for Kiro, Claude, Gemini, and Codex.")
+    print("Read scope: user configuration roots for Kiro, Claude, Gemini, and Codex.")
     server.serve_forever()
 
 

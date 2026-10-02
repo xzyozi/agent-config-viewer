@@ -49,12 +49,11 @@ KIND_BY_SUFFIX = {
     ".yaml": "yaml",
     ".yml": "yaml",
 }
-SAMPLE_BYTES = 8192
+SAMPLE_BYTES = 512
 
 
 def scan_provider(
     specification: dict[str, object],
-    project_root: Path,
     home_root: Path,
     next_id: list[int],
     file_index: dict[str, tuple[Path, Path]],
@@ -66,7 +65,7 @@ def scan_provider(
     errors: list[str] = []
     for source in specification["sources"]:
         scope = str(source["scope"])
-        base = project_root if scope == "project" else home_root
+        base = home_root
         source_root = base / str(source["root"])
         display_root = str(source["displayRoot"])
         try:
@@ -353,12 +352,15 @@ def classify_file(file_path: Path) -> str:
     suffix = file_path.suffix.casefold()
     if suffix in BINARY_SUFFIXES:
         return "binary"
+    known_kind = KIND_BY_SUFFIX.get(suffix)
+    if known_kind:
+        return known_kind
     try:
         with file_path.open("rb") as source_file:
             sample = source_file.read(SAMPLE_BYTES)
     except OSError:
-        return KIND_BY_SUFFIX.get(suffix, "text")
-    return "binary" if is_binary_content(file_path.name, sample) else KIND_BY_SUFFIX.get(suffix, "text")
+        return "text"
+    return "binary" if is_binary_content(file_path.name, sample) else "text"
 
 
 def is_binary_content(name: str, content: bytes) -> bool:
