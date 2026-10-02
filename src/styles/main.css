@@ -328,6 +328,39 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.source-preview {
+  background: #f8fafc;
+}
+
+.source-preview code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: inherit;
+}
+
+.source-json {
+  border-top: 3px solid #f0a35e;
+}
+
+.source-toml,
+.source-yaml {
+  border-top: 3px solid #68a77b;
+}
+
+.source-javascript,
+.source-css,
+.source-html {
+  border-top: 3px solid #6b8cff;
+}
+
+.source-python,
+.source-shell {
+  border-top: 3px solid #9a75c9;
+}
+
 .markdown-preview {
   color: #263238;
   overflow-wrap: anywhere;

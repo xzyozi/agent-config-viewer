@@ -128,17 +128,17 @@ function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect) 
     }
     const rootList = document.createElement("ul");
     rootList.className = "kiro-tree";
-    rootList.append(treeNode(document, tree, selectedFileId, onFileSelect, true));
+    for (const child of tree.children ?? []) rootList.append(treeNode(document, child, selectedFileId, onFileSelect));
     section.append(rootList);
     return section;
 }
 
-function treeNode(document, node, selectedFileId, onFileSelect, isRoot = false) {
+function treeNode(document, node, selectedFileId, onFileSelect) {
     const item = document.createElement("li");
     item.className = `tree-node tree-node-${node.type}`;
     if (node.type === "directory") {
         const details = document.createElement("details");
-        details.open = true;
+        details.open = false;
         const summary = document.createElement("summary");
         summary.className = "tree-directory";
         summary.textContent = node.name;
@@ -230,10 +230,7 @@ function previewSection(document, preview, fileEntry, fileEntries, migrationPlan
         renderMarkdown(document, markdown, preview.content, { currentPath: fileEntry.relativePath, fileEntries, onFileSelect });
         section.append(markdown);
     } else {
-        const content = document.createElement("pre");
-        content.className = "text-preview";
-        content.textContent = preview.content;
-        section.append(content);
+        section.append(sourcePreview(document, fileEntry, preview.content));
     }
     if (migrationPlan) section.append(migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle));
     return section;
@@ -244,6 +241,25 @@ function fileInfo(document, fileEntry) {
     info.className = "file-info";
     info.textContent = `${fileKindLabel(fileEntry.kind)} · ${formatBytes(fileEntry.sizeBytes)}`;
     return info;
+}
+
+function sourcePreview(document, fileEntry, content) {
+    const preview = document.createElement("pre");
+    preview.className = `text-preview source-preview source-${fileEntry.kind}`;
+    const code = document.createElement("code");
+    code.className = `language-${fileEntry.kind}`;
+    code.textContent = formatSourceContent(fileEntry.kind, content);
+    preview.append(code);
+    return preview;
+}
+
+function formatSourceContent(kind, content) {
+    if (kind !== "json") return content;
+    try {
+        return `${JSON.stringify(JSON.parse(content), null, 2)}\n`;
+    } catch {
+        return content;
+    }
 }
 
 function formatBytes(bytes) {
