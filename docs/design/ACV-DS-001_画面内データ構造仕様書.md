@@ -36,18 +36,18 @@ DAO、データベース、localStorage、IndexedDBは使用しない。サー�
 
 ### 2.2 FileEntry
 
-| フィールド         | 型               | 制約                                                                                          |
-| :----------------- | :--------------- | :-------------------------------------------------------------------------------------------- |
-| `id`               | 文字列           | `secrets.token_urlsafe(24)`の不透明ID。実パスを含めない                                       |
-| `providerId`       | 文字列           | Provider識別子                                                                                |
-| `scope`            | 列挙値           | `project`または`user`                                                                         |
-| `categoryName`     | 文字列           | Providerと相対パスから派生した表示カテゴリ                                                    |
-| `relativePath`     | 文字列           | `.kiro`、`~/.kiro`などの表示用相対パス。`..`を含めない                                        |
-| `displayName`      | 文字列           | ファイル名                                                                                    |
-| `kind`             | 列挙値           | `markdown`、`json`、`toml`、`yaml`、`javascript`、`python`、`text`、`binary`、`sensitive`など |
-| `sizeBytes`        | 数値             | 0以上。初回走査時のサイズ                                                                     |
-| `readable`         | 真偽値           | バイナリ、保護対象、サイズ超過、権限失敗はfalse                                               |
-| `unreadableReason` | 列挙値またはnull | `binary`、`sensitive`、`too_large`、`permission_denied`                                       |
+| フィールド         | 型               | 制約                                                                                                                                            |
+| :----------------- | :--------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`               | 文字列           | `secrets.token_urlsafe(24)`の不透明ID。実パスを含めない                                                                                         |
+| `providerId`       | 文字列           | Provider識別子                                                                                                                                  |
+| `scope`            | 列挙値           | `project`または`user`                                                                                                                           |
+| `categoryName`     | 文字列           | Providerと相対パスから派生した表示カテゴリ                                                                                                      |
+| `relativePath`     | 文字列           | `.kiro`、`~/.kiro`などの表示用相対パス。`..`を含めない                                                                                          |
+| `displayName`      | 文字列           | ファイル名                                                                                                                                      |
+| `kind`             | 列挙値           | `markdown`、`json`、`toml`、`yaml`、`javascript`、`python`、`css`、`html`、`shell`、`text`、`binary`、`sensitive`など。拡張子に応じてViewを選択 |
+| `sizeBytes`        | 数値             | 0以上。初回走査時のサイズ                                                                                                                       |
+| `readable`         | 真偽値           | バイナリ、保護対象、サイズ超過、権限失敗はfalse                                                                                                 |
+| `unreadableReason` | 列挙値またはnull | `binary`、`sensitive`、`too_large`、`permission_denied`                                                                                         |
 
 ### 2.3 TreeNode
 

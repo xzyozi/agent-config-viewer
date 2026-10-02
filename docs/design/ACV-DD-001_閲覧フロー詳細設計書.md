@@ -79,7 +79,7 @@ Provider切替とRefreshでは選択・プレビューを破棄する。ファ�
 | サイズ超過               | `too_large`         | 本文を表示しない                   |
 | 読取失敗・偽造ID・リンク | `read_failed`       | 本文、絶対パス、生例外を表示しない |
 
-Markdownの相対リンクは現在表示中の同一rootに解決できる場合だけアプリ内選択へ接続する。HTTP/HTTPSリンクは新しいタブと`noopener noreferrer`を付け、その他のスキームはリンク化しない。
+Markdownの相対リンクは現在表示中の同一rootに解決できる場合だけアプリ内選択へ接続する。HTTP/HTTPSリンクは新しいタブと`noopener noreferrer`を付け、その他のスキームはリンク化しない。ディレクトリTreeNodeは初期状態を閉じ、利用者が必要なrootとディレクトリだけを展開する。JSONは整形JSON、TOML/YAML/JavaScript/Python/CSS/HTML/Shellはソースコード、その他のテキストはプレーンテキストとして表示する。
 
 ## 5. 検証方針
 

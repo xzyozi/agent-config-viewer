@@ -43,6 +43,8 @@ CIは実ユーザーの設定を読まず、一時root配下に`project`と`user
 
 - Kiro、Claude、Gemini、Codexのタブが固定順で表示される。
 - 各ProviderのプロジェクトrootとユーザーrootがExplorerへ表示される。
+- 初期表示ではディレクトリが展開されず、必要なroot・ディレクトリを操作して展開できる。
+- JSONは整形JSON、TOML/YAML/JavaScript/Python/CSS/HTML/Shellはソースコード、その他のテキストは対応する本文Viewで表示される。
 - バックアップ、ログ、セッション、一時領域が表示されない。
 - Markdownの見出し、表、インライン要素、コードブロックがレンダリングされる。
 - HTML文字列はDOMとして解釈されず、スクリプトが実行されない。
