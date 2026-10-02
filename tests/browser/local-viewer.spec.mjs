@@ -92,6 +92,7 @@ test("shows and copies a user Skill bundle without changing its source", async (
     await page.goto("/");
     await openDirectory(page, "~/.kiro");
     await openDirectory(page, "skills");
+    await openDirectory(page, "example");
     await page.getByRole("button", { name: "~/.kiro/skills/example/SKILL.md" }).click();
     await page.getByRole("button", { name: "移行計画を表示" }).click();
     await expect(page.getByRole("heading", { name: "Skill bundle 移行計画" })).toBeVisible();
@@ -108,6 +109,7 @@ test("shows and copies a user Skill bundle without changing its source", async (
     await expect(page.getByText("Skill bundleをコピーしました: .kiro/skills/example-copy")).toBeVisible();
     await openDirectory(page, "~/.kiro");
     await openDirectory(page, "skills");
+    await openDirectory(page, "example-copy");
     await expect(page.getByRole("button", { name: "~/.kiro/skills/example-copy/SKILL.md" })).toBeVisible();
     await expect(readSkillBundle("example")).resolves.toEqual(sourceBefore);
     await expect(readSkillBundle("example-copy")).resolves.toEqual(sourceBefore);
