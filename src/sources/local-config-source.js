@@ -28,6 +28,16 @@ export class LocalConfigSource {
         return payload;
     }
 
+    async resolveFileLink(fileId, target) {
+        const query = new URLSearchParams({ target }).toString();
+        const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/resolve?${query}`, { headers: { Accept: "application/json" } });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || !payload.fileEntry || typeof payload.fileEntry.id !== "string" || typeof payload.fileEntry.relativePath !== "string") {
+            throw new FileReadError("read_failed");
+        }
+        return payload.fileEntry;
+    }
+
     async readText(fileId) {
         const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/content`, { headers: { Accept: "application/json" } });
         const payload = await response.json().catch(() => null);

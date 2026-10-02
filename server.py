@@ -8,9 +8,9 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
-from backend.kiro_catalog import is_binary_content, list_directory as list_config_directory, path_is_link, scan_provider as scan_config_provider
+from backend.kiro_catalog import is_binary_content, list_directory as list_config_directory, path_is_link, resolve_file_link as resolve_config_file_link, scan_provider as scan_config_provider
 from backend.skill_migration import SkillMigrationError, copy_skill_bundle, plan_skill_migration
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -18,6 +18,7 @@ HOME_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_HOME_ROOT", Path.home())).r
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 MAX_COPY_REQUEST_BYTES = 4096
 FILE_INDEX: dict[str, tuple[Path, Path]] = {}
+FILE_METADATA: dict[str, dict[str, object]] = {}
 DIRECTORY_INDEX: dict[str, tuple[Path, Path, str, str, str]] = {}
 FILE_INDEX_LOCK = threading.RLock()
 FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,}")
@@ -82,6 +83,8 @@ def catalog_payload() -> dict[str, object]:
     with FILE_INDEX_LOCK:
         FILE_INDEX.clear()
         FILE_INDEX.update(file_index)
+        FILE_METADATA.clear()
+        FILE_METADATA.update({entry["id"]: entry for result in provider_results for entry in result["fileEntries"]})
         DIRECTORY_INDEX.clear()
         DIRECTORY_INDEX.update(directory_index)
     return {"providerResults": provider_results}
@@ -151,8 +154,15 @@ def error_status(error: SkillMigrationError) -> HTTPStatus:
 class LocalOnlyHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         request = urlsplit(self.path)
-        if request.query or request.fragment:
+        if request.fragment:
             self.send_error(HTTPStatus.BAD_REQUEST)
+            return
+        resolve_file_id = file_id_for_action(request.path, "resolve")
+        if request.query and resolve_file_id is None:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+            return
+        if resolve_file_id is not None:
+            self.send_resolved_file_link(resolve_file_id, request.query)
             return
         if file_id_for_action(request.path, "migration-copy") is not None:
             self.send_json({"code": "copy_failed"}, HTTPStatus.METHOD_NOT_ALLOWED)
@@ -188,6 +198,20 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
             return
         self.send_migration_copy(file_id)
 
+    def send_resolved_file_link(self, file_id: str, query: str) -> None:
+        values = parse_qs(query, keep_blank_values=True)
+        targets = values.get("target", [])
+        if not FILE_ID_PATTERN.fullmatch(file_id) or len(targets) != 1 or len(targets[0]) > 4096:
+            self.send_json({"code": "read_failed"}, HTTPStatus.NOT_FOUND)
+            return
+        try:
+            with FILE_INDEX_LOCK:
+                entry = resolve_config_file_link(file_id, targets[0], FILE_INDEX, FILE_METADATA, [len(FILE_INDEX)], MAX_READABLE_BYTES)
+                FILE_METADATA[entry["id"]] = entry
+            self.send_json({"fileEntry": entry})
+        except (KeyError, OSError):
+            self.send_json({"code": "read_failed"}, HTTPStatus.NOT_FOUND)
+
     def send_directory_children(self, directory_id: str) -> None:
         if not FILE_ID_PATTERN.fullmatch(directory_id):
             self.send_json({"code": "read_failed"}, HTTPStatus.NOT_FOUND)
@@ -195,6 +219,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         try:
             with FILE_INDEX_LOCK:
                 payload = list_config_directory(directory_id, DIRECTORY_INDEX, FILE_INDEX, [len(FILE_INDEX)], MAX_READABLE_BYTES)
+                FILE_METADATA.update({entry["id"]: entry for entry in payload["fileEntries"]})
             self.send_json(payload)
         except (KeyError, OSError):
             self.send_json({"code": "read_failed"}, HTTPStatus.NOT_FOUND)

@@ -22,7 +22,7 @@ export class BrowserView {
         this.renderMessage("設定内容や詳細な例外情報は表示しません。", "notice");
     }
 
-    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle) {
+    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink) {
         const results = browseState.providerResults;
         const selected = results.find((result) => result.providerId === browseState.selectedProviderId) ?? results[0];
         if (!selected) {
@@ -41,7 +41,7 @@ export class BrowserView {
         panel.setAttribute("role", "tabpanel");
         panel.setAttribute("tabindex", "0");
         panel.setAttribute("aria-labelledby", `tab-${selected.providerId}`);
-        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, browseState.directoryLoadingKey, browseState.directoryErrorKey);
+        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, browseState.directoryLoadingKey, browseState.directoryErrorKey);
         this.catalog.replaceChildren(tabs, panel);
     }
 
@@ -69,7 +69,7 @@ export class BrowserView {
         queueMicrotask(() => this.document.querySelector(`#tab-${results[next].providerId}`)?.focus());
     }
 
-    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, directoryLoadingKey, directoryErrorKey) {
+    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, directoryLoadingKey, directoryErrorKey) {
         const heading = this.document.createElement("div");
         heading.className = "provider-heading";
         const title = this.document.createElement("div");
@@ -96,7 +96,7 @@ export class BrowserView {
         layout.className = "browse-layout";
         layout.append(
             treeSection(this.document, result.tree, result.fileEntries, preview?.fileId ?? null, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey),
-            previewSection(this.document, preview, result.fileEntries.find((entry) => entry.id === preview?.fileId) ?? null, result.fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect),
+            previewSection(this.document, preview, result.fileEntries.find((entry) => entry.id === preview?.fileId) ?? null, result.fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink),
         );
         panel.append(layout);
     }
@@ -192,7 +192,7 @@ function directoryKeyOf(node) {
     return node?.directoryId ?? node?.relativePath ?? null;
 }
 
-function previewSection(document, preview, fileEntry, fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect) {
+function previewSection(document, preview, fileEntry, fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink) {
     const section = document.createElement("section");
     section.className = "file-preview";
     const header = document.createElement("div");
@@ -245,7 +245,7 @@ function previewSection(document, preview, fileEntry, fileEntries, migrationPlan
     if (fileEntry.kind === "markdown") {
         const markdown = document.createElement("article");
         markdown.className = "markdown-preview";
-        renderMarkdown(document, markdown, preview.content, { currentPath: fileEntry.relativePath, fileEntries, onFileSelect });
+        renderMarkdown(document, markdown, preview.content, { currentPath: fileEntry.relativePath, currentFileId: fileEntry.id, fileEntries, onFileSelect, onResolveLink });
         section.append(markdown);
     } else {
         section.append(sourcePreview(document, fileEntry, preview.content));

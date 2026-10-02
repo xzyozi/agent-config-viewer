@@ -229,6 +229,51 @@ def list_directory(
     return {"directoryId": directory_id, "children": children, "fileEntries": file_entries}
 
 
+def resolve_file_link(
+    source_file_id: str,
+    target: str,
+    file_index: dict[str, tuple[Path, Path]],
+    file_metadata: dict[str, dict[str, object]],
+    next_id: list[int],
+    max_readable_bytes: int,
+) -> dict[str, object]:
+    source_record = file_index.get(source_file_id)
+    source_metadata = file_metadata.get(source_file_id)
+    if source_record is None or source_metadata is None or not is_relative_link(target):
+        raise KeyError(source_file_id)
+    source_path, allowed_root = source_record
+    target_path = target.split("#", 1)[0].split("?", 1)[0]
+    if not target_path:
+        raise KeyError(target)
+    candidate_path = source_path.parent / PurePosixPath(target_path)
+    if path_is_link(candidate_path):
+        raise KeyError(target)
+    resolved_path = candidate_path.resolve(strict=True)
+    if path_is_link(resolved_path) or not resolved_path.is_file() or not is_within(resolved_path, allowed_root):
+        raise KeyError(target)
+    if is_backup_name(resolved_path.name) or is_sensitive_name(resolved_path.name):
+        raise KeyError(target)
+    relative_path = resolved_path.relative_to(allowed_root).as_posix()
+    return make_file_entry(
+        resolved_path,
+        allowed_root,
+        str(source_metadata["displayRoot"]),
+        str(source_metadata["scope"]),
+        str(source_metadata["providerId"]),
+        category_for_path(str(source_metadata["providerId"]), relative_path),
+        next_id,
+        file_index,
+        max_readable_bytes,
+    )
+
+
+def is_relative_link(target: str) -> bool:
+    if not target or target.startswith(("/", "\\", "~")) or "\\" in target:
+        return False
+    first_part = target.split("/", 1)[0]
+    return ":" not in first_part
+
+
 def register_directory(
     directory: Path,
     allowed_root: Path,
@@ -272,6 +317,7 @@ def make_file_entry(
         "id": file_id,
         "providerId": provider_id,
         "scope": scope,
+        "displayRoot": display_root,
         "categoryName": category,
         "relativePath": relative_path,
         "displayName": file_path.name,
@@ -304,6 +350,7 @@ def file_node(entry: dict[str, object]) -> dict[str, object]:
         "relativePath": entry["relativePath"],
         "fileId": entry["id"],
         "scope": entry["scope"],
+        "displayRoot": entry["displayRoot"],
         "kind": entry["kind"],
         "sizeBytes": entry["sizeBytes"],
         "readable": entry["readable"],

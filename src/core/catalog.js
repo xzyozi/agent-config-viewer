@@ -34,6 +34,11 @@ export class Catalog {
         return this.source.listDirectory(directoryId);
     }
 
+    async resolveFileLink(fileId, target) {
+        if (typeof fileId !== "string" || typeof target !== "string" || !target) throw { code: "read_failed" };
+        return this.source.resolveFileLink(fileId, target);
+    }
+
     async planSkillMigration(fileEntry) {
         if (!isKiroSkill(fileEntry)) throw { code: "read_failed" };
         return this.source.getSkillMigrationPlan(fileEntry.id);

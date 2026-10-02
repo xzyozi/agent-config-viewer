@@ -55,6 +55,19 @@ export class AppShell {
         }
     }
 
+    async resolveFileLink(sourceFileId, target) {
+        const sourceFile = this.findFile(sourceFileId);
+        if (!sourceFile) return null;
+        try {
+            const fileEntry = await this.catalog.resolveFileLink(sourceFileId, target);
+            if (fileEntry.providerId !== this.browseState?.selectedProviderId) return null;
+            this.browseState = { ...this.browseState, providerResults: mergeFileEntry(this.browseState.providerResults, fileEntry) };
+            return fileEntry;
+        } catch {
+            return null;
+        }
+    }
+
     async selectFile(fileId) {
         const fileEntry = this.findFile(fileId);
         if (!fileEntry) return;
@@ -138,6 +151,7 @@ export class AppShell {
             (destinationName, confirmed) => this.copySkillBundle(destinationName, confirmed),
             () => this.refresh(),
             (directoryNode) => this.toggleDirectory(directoryNode),
+            (fileId, target) => this.resolveFileLink(fileId, target),
         );
     }
 }
@@ -167,6 +181,12 @@ function updateDirectoryInTree(node, directoryKey, transform) {
     if (node.type === "directory" && directoryKeyOf(node) === directoryKey) return transform(node);
     if (!node.children?.length) return node;
     return { ...node, children: node.children.map((child) => updateDirectoryInTree(child, directoryKey, transform)) };
+}
+
+function mergeFileEntry(providerResults, fileEntry) {
+    return providerResults.map((providerResult) => providerResult.providerId === fileEntry.providerId && !providerResult.fileEntries.some((entry) => entry.id === fileEntry.id)
+        ? { ...providerResult, fileEntries: [...providerResult.fileEntries, fileEntry] }
+        : providerResult);
 }
 
 function isDestinationName(destinationName) {

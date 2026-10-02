@@ -178,7 +178,35 @@ function appendLink(document, parent, label, target, title, options) {
         parent.append(link);
         return;
     }
+    if (isDeferredInternalLink(safeTarget) && options.onResolveLink && options.currentFileId) {
+        const link = document.createElement("a");
+        link.href = "#";
+        link.className = "internal-file-link";
+        if (title) link.title = title;
+        link.addEventListener("click", async (event) => {
+            event.preventDefault();
+            link.setAttribute("aria-busy", "true");
+            try {
+                const resolvedFile = await options.onResolveLink(options.currentFileId, safeTarget);
+                if (resolvedFile) options.onFileSelect?.(resolvedFile.id);
+                else link.classList.add("is-unresolved");
+            } finally {
+                link.removeAttribute("aria-busy");
+            }
+        });
+        appendInline(document, link, label, options);
+        parent.append(link);
+        return;
+    }
     parent.append(document.createTextNode(label));
+}
+
+function isDeferredInternalLink(target) {
+    return Boolean(target)
+        && !["/", "\\", "~", "#"].some((prefix) => target.startsWith(prefix))
+        && !target.startsWith("//")
+        && !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(target)
+        && !/[\0]/.test(target);
 }
 
 function resolveInternalFile(target, currentPath, fileEntries) {
