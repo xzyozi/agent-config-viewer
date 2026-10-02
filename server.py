@@ -4,20 +4,18 @@ import json
 import mimetypes
 import os
 import re
-import secrets
-import stat
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
-from backend.kiro_catalog import is_binary_content, path_is_link, scan_kiro_root
+from backend.kiro_catalog import is_binary_content, path_is_link, scan_provider as scan_config_provider
 from backend.skill_migration import SkillMigrationError, copy_skill_bundle, plan_skill_migration
 
 APP_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_PROJECT_ROOT", APP_ROOT)).resolve()
-HOME_ROOT = Path.home().resolve()
+HOME_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_HOME_ROOT", Path.home())).resolve()
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 MAX_COPY_REQUEST_BYTES = 4096
 FILE_INDEX: dict[str, tuple[Path, Path]] = {}
@@ -25,7 +23,44 @@ FILE_INDEX_LOCK = threading.RLock()
 FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,}")
 COPY_REQUEST_KEYS = frozenset({"snapshotDigest", "destinationName", "confirmed"})
 PROVIDERS = (
-    {"id": "kiro", "label": "Kiro", "root": ".kiro", "categories": (("All", "project", ".", ("**/*",)),)},
+    {
+        "id": "kiro",
+        "label": "Kiro",
+        "sources": (
+            {"scope": "project", "root": ".kiro", "displayRoot": ".kiro"},
+            {"scope": "user", "root": ".kiro", "displayRoot": "~/.kiro"},
+        ),
+    },
+    {
+        "id": "claude",
+        "label": "Claude",
+        "sources": (
+            {"scope": "project", "root": ".claude", "displayRoot": ".claude"},
+            {"scope": "user", "root": ".claude", "displayRoot": "~/.claude"},
+            {"scope": "project", "root": ".", "displayRoot": ".", "files": ("CLAUDE.md",), "category": "Global Instructions"},
+            {"scope": "user", "root": "", "displayRoot": "~", "files": ("CLAUDE.md",), "category": "Global Instructions"},
+        ),
+    },
+    {
+        "id": "gemini",
+        "label": "Gemini",
+        "sources": (
+            {"scope": "project", "root": ".gemini", "displayRoot": ".gemini"},
+            {"scope": "user", "root": ".gemini", "displayRoot": "~/.gemini"},
+            {"scope": "project", "root": ".", "displayRoot": ".", "files": ("GEMINI.md",), "category": "Global Instructions"},
+            {"scope": "user", "root": "", "displayRoot": "~", "files": ("GEMINI.md",), "category": "Global Instructions"},
+        ),
+    },
+    {
+        "id": "codex",
+        "label": "Codex",
+        "sources": (
+            {"scope": "project", "root": ".codex", "displayRoot": ".codex"},
+            {"scope": "user", "root": ".codex", "displayRoot": "~/.codex"},
+            {"scope": "project", "root": ".", "displayRoot": ".", "files": ("AGENTS.md",), "category": "Global Instructions"},
+            {"scope": "user", "root": "", "displayRoot": "~", "files": ("AGENTS.md",), "category": "Global Instructions"},
+        ),
+    },
 )
 
 
@@ -46,108 +81,10 @@ def is_within(path: Path, parent: Path) -> bool:
         return False
 
 
-def is_link(entry: os.DirEntry[str]) -> bool:
-    attributes = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
-    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-    return entry.is_symlink() or bool(attributes & reparse_point)
-
-
-def matches(name: str, patterns: tuple[str, ...]) -> bool:
-    lowered = name.casefold()
-    return any(
-        (pattern.startswith("**/*.") and lowered.endswith(pattern[4:].casefold()))
-        or (pattern == "**/SKILL.md" and lowered == "skill.md")
-        or (pattern.startswith("*.") and lowered.endswith(pattern[1:].casefold()))
-        or lowered == pattern.casefold()
-        for pattern in patterns
-    )
-
-
-def file_kind(name: str) -> str:
-    lowered = name.casefold()
-    if lowered.endswith(".md"):
-        return "markdown"
-    if lowered.endswith(".json"):
-        return "json"
-    if lowered.endswith(".toml"):
-        return "toml"
-    return "text"
-
-
-def walk_files(directory: Path):
-    with os.scandir(directory) as items:
-        for entry in sorted(items, key=lambda item: item.name.casefold()):
-            if is_link(entry):
-                continue
-            if entry.is_dir(follow_symlinks=False):
-                yield from walk_files(Path(entry.path))
-            elif entry.is_file(follow_symlinks=False):
-                yield Path(entry.path)
-
-
-def scan_provider(specification: dict[str, object], next_id: list[int], file_index: dict[str, tuple[Path, Path]]) -> dict[str, object]:
-    root = HOME_ROOT / str(specification["root"])
-    try:
-        root_available = root.is_dir() and not root.is_symlink()
-        resolved_root = root.resolve(strict=True) if root_available else None
-        if resolved_root and not is_within(resolved_root, HOME_ROOT):
-            return provider_result(specification, "list_failed")
-        entries = []
-        for category_name, scope, category_path, patterns in specification["categories"]:
-            if scope == "home":
-                entries.extend(scan_home_files(patterns, specification, category_name, next_id, file_index))
-                continue
-            if not resolved_root:
-                continue
-            category_root = resolved_root if category_path == "." else resolved_root.joinpath(*category_path.split("/"))
-            if not category_root.is_dir() or category_root.is_symlink():
-                continue
-            for file_path in walk_files(category_root):
-                if matches(file_path.name, patterns):
-                    entries.append(file_entry(file_path, resolved_root, str(specification["root"]), specification, category_name, next_id, file_index))
-        status = "ok" if resolved_root or entries else "not_found"
-        return {"providerId": specification["id"], "status": status, "fileEntries": entries, "errorKind": None if status == "ok" else status}
-    except PermissionError:
-        return provider_result(specification, "permission_denied")
-    except OSError:
-        return provider_result(specification, "list_failed")
-
-
-def scan_home_files(patterns: tuple[str, ...], specification: dict[str, object], category_name: str, next_id: list[int], file_index: dict[str, tuple[Path, Path]]) -> list[dict[str, object]]:
-    entries = []
-    for name in patterns:
-        if "*" in name:
-            continue
-        file_path = HOME_ROOT / name
-        if file_path.is_file() and not file_path.is_symlink():
-            entries.append(file_entry(file_path, HOME_ROOT, "", specification, category_name, next_id, file_index))
-    return entries
-
-
-def provider_result(specification: dict[str, object], status: str) -> dict[str, object]:
-    return {"providerId": specification["id"], "status": status, "fileEntries": [], "errorKind": status}
-
-
-def file_entry(file_path: Path, base: Path, relative_prefix: str, specification: dict[str, object], category_name: str, next_id: list[int], file_index: dict[str, tuple[Path, Path]]) -> dict[str, object]:
-    next_id[0] += 1
-    file_id = secrets.token_urlsafe(24)
-    try:
-        size = file_path.stat().st_size
-        readable = size <= MAX_READABLE_BYTES
-        reason = None if readable else "too_large"
-    except OSError:
-        size, readable, reason = 0, False, "permission_denied"
-    if readable:
-        file_index[file_id] = (file_path, base)
-    relative = file_path.relative_to(base).as_posix()
-    relative_path = f"{relative_prefix}/{relative}" if relative_prefix else relative
-    return {"id": file_id, "providerId": specification["id"], "categoryName": category_name, "relativePath": relative_path, "displayName": file_path.name, "kind": file_kind(file_path.name), "sizeBytes": size, "readable": readable, "unreadableReason": reason}
-
-
 def catalog_payload() -> dict[str, object]:
     next_id = [0]
     file_index: dict[str, tuple[Path, Path]] = {}
-    provider_results = [scan_kiro_root(PROJECT_ROOT / ".kiro", next_id, file_index, MAX_READABLE_BYTES)]
+    provider_results = [scan_config_provider(specification, PROJECT_ROOT, HOME_ROOT, next_id, file_index, MAX_READABLE_BYTES) for specification in PROVIDERS]
     with FILE_INDEX_LOCK:
         FILE_INDEX.clear()
         FILE_INDEX.update(file_index)
@@ -260,7 +197,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
             if not record:
                 raise SkillMigrationError()
             file_path, allowed_root = record
-            self.send_json(plan_skill_migration(file_id, file_path, allowed_root, PROJECT_ROOT))
+            self.send_json(plan_skill_migration(file_id, file_path, allowed_root, allowed_root.parent))
         except SkillMigrationError as error:
             self.send_json({"code": error.code}, HTTPStatus.NOT_FOUND)
 
@@ -277,7 +214,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
             result = copy_skill_bundle(
                 file_path,
                 allowed_root,
-                PROJECT_ROOT,
+                allowed_root.parent,
                 request_payload["snapshotDigest"],
                 request_payload["destinationName"],
             )
@@ -350,7 +287,7 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
 def main() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 8765), LocalOnlyHandler)
     print("Agent Config Viewer: http://127.0.0.1:8765/")
-    print("Read scope: project .kiro directory only.")
+    print("Read scope: project and user configuration roots for Kiro, Claude, Gemini, and Codex.")
     server.serve_forever()
 
 

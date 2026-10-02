@@ -6,6 +6,9 @@ import stat
 from pathlib import Path, PurePosixPath
 
 BACKUP_SUFFIXES = frozenset({".bak", ".backup", ".old", ".orig", ".swp", ".swo"})
+EXCLUDED_DIRECTORY_NAMES = frozenset({".git", "__pycache__", "error_mv", "logs", "session-index", "sessions", "tmp"})
+SENSITIVE_FILE_NAMES = frozenset({"db_config.ini", "futagawa2.ini", "tantai_db.ini"})
+SENSITIVE_TOKENS = ("credential", "password", "private", "secret", "token")
 BINARY_SUFFIXES = frozenset(
     {
         ".7z",
@@ -32,6 +35,7 @@ BINARY_SUFFIXES = frozenset(
     }
 )
 KIND_BY_SUFFIX = {
+    ".cjs": "javascript",
     ".css": "css",
     ".html": "html",
     ".js": "javascript",
@@ -48,34 +52,151 @@ KIND_BY_SUFFIX = {
 SAMPLE_BYTES = 8192
 
 
-def scan_kiro_root(root: Path, next_id: list[int], file_index: dict[str, tuple[Path, Path]], max_readable_bytes: int) -> dict[str, object]:
-    empty_result = {"providerId": "kiro", "status": "not_found", "fileEntries": [], "tree": None, "errorKind": "not_found"}
-    try:
-        if not root.is_dir() or path_is_link(root):
-            return empty_result
-        resolved_root = root.resolve(strict=True)
-        tree = directory_node(root.name, root.name)
-        file_entries: list[dict[str, object]] = []
-        walk_directory(root, resolved_root, tree, file_entries, next_id, file_index, max_readable_bytes)
-        sort_tree(tree)
-        file_entries.sort(key=lambda entry: str(entry["relativePath"]).casefold())
-        return {
-            "providerId": "kiro",
-            "status": "ok",
-            "fileEntries": file_entries,
-            "tree": tree,
-            "errorKind": None,
-        }
-    except PermissionError:
-        return {"providerId": "kiro", "status": "permission_denied", "fileEntries": [], "tree": None, "errorKind": "permission_denied"}
-    except OSError:
-        return {"providerId": "kiro", "status": "list_failed", "fileEntries": [], "tree": None, "errorKind": "list_failed"}
+def scan_provider(
+    specification: dict[str, object],
+    project_root: Path,
+    home_root: Path,
+    next_id: list[int],
+    file_index: dict[str, tuple[Path, Path]],
+    max_readable_bytes: int,
+) -> dict[str, object]:
+    tree = directory_node(str(specification["label"]), str(specification["id"]))
+    file_entries: list[dict[str, object]] = []
+    found_source = False
+    errors: list[str] = []
+    for source in specification["sources"]:
+        scope = str(source["scope"])
+        base = project_root if scope == "project" else home_root
+        source_root = base / str(source["root"])
+        display_root = str(source["displayRoot"])
+        try:
+            if source.get("files"):
+                source_node = directory_node(display_root, display_root)
+                source_found = scan_fixed_files(
+                    source,
+                    source_root,
+                    base,
+                    display_root,
+                    scope,
+                    str(specification["id"]),
+                    source_node,
+                    file_entries,
+                    next_id,
+                    file_index,
+                    max_readable_bytes,
+                )
+            else:
+                source_found, source_node = scan_directory_root(
+                    source_root,
+                    display_root,
+                    scope,
+                    str(specification["id"]),
+                    file_entries,
+                    next_id,
+                    file_index,
+                    max_readable_bytes,
+                    base,
+                )
+            if source_found:
+                tree["children"].append(source_node)
+                found_source = True
+        except PermissionError:
+            errors.append("permission_denied")
+        except OSError:
+            errors.append("list_failed")
+    sort_tree(tree)
+    file_entries.sort(key=lambda entry: str(entry["relativePath"]).casefold())
+    status = "ok" if found_source else errors[0] if errors else "not_found"
+    return {
+        "providerId": specification["id"],
+        "label": specification["label"],
+        "status": status,
+        "fileEntries": file_entries,
+        "tree": tree if found_source else None,
+        "errorKind": None if status == "ok" else status,
+    }
+
+
+def scan_directory_root(
+    root: Path,
+    display_root: str,
+    scope: str,
+    provider_id: str,
+    file_entries: list[dict[str, object]],
+    next_id: list[int],
+    file_index: dict[str, tuple[Path, Path]],
+    max_readable_bytes: int,
+    allowed_parent: Path,
+) -> tuple[bool, dict[str, object]]:
+    source_node = directory_node(display_root, display_root)
+    if not root.is_dir() or path_is_link(root):
+        return False, source_node
+    resolved_root = root.resolve(strict=True)
+    if not is_within(resolved_root, allowed_parent):
+        return False, source_node
+    walk_directory(
+        resolved_root,
+        resolved_root,
+        source_node,
+        scope,
+        provider_id,
+        display_root,
+        file_entries,
+        next_id,
+        file_index,
+        max_readable_bytes,
+    )
+    return True, source_node
+
+
+def scan_fixed_files(
+    source: dict[str, object],
+    source_root: Path,
+    allowed_parent: Path,
+    display_root: str,
+    scope: str,
+    provider_id: str,
+    source_node: dict[str, object],
+    file_entries: list[dict[str, object]],
+    next_id: list[int],
+    file_index: dict[str, tuple[Path, Path]],
+    max_readable_bytes: int,
+) -> bool:
+    found = False
+    if not source_root.is_dir() or path_is_link(source_root):
+        return False
+    resolved_root = source_root.resolve(strict=True)
+    if not is_within(resolved_root, allowed_parent):
+        return False
+    for filename in source["files"]:
+        file_path = resolved_root / str(filename)
+        if not file_path.is_file() or path_is_link(file_path) or is_backup_name(file_path.name):
+            continue
+        entry = make_file_entry(
+            file_path,
+            resolved_root,
+            display_root,
+            scope,
+            provider_id,
+            str(source.get("category", "Other")),
+            next_id,
+            file_index,
+            max_readable_bytes,
+        )
+        file_entries.append(entry)
+        source_node["children"].append(file_node(entry))
+        found = True
+    sort_tree(source_node)
+    return found
 
 
 def walk_directory(
     directory: Path,
     root: Path,
     parent_node: dict[str, object],
+    scope: str,
+    provider_id: str,
+    display_root: str,
     file_entries: list[dict[str, object]],
     next_id: list[int],
     file_index: dict[str, tuple[Path, Path]],
@@ -83,19 +204,42 @@ def walk_directory(
 ) -> None:
     with os.scandir(directory) as items:
         for item in sorted(items, key=lambda entry: entry.name.casefold()):
-            if is_link(item):
+            if is_link(item) or is_backup_name(item.name):
                 continue
             item_path = Path(item.path)
-            relative_path = item_path.relative_to(root).as_posix()
-            display_path = f"{root.name}/{relative_path}"
             if item.is_dir(follow_symlinks=False):
-                node = directory_node(item.name, display_path)
+                if is_excluded_directory(item.name):
+                    continue
+                relative_path = item_path.relative_to(root).as_posix()
+                node = directory_node(item.name, join_display_path(display_root, relative_path))
                 parent_node["children"].append(node)
-                walk_directory(item_path, root, node, file_entries, next_id, file_index, max_readable_bytes)
+                walk_directory(
+                    item_path,
+                    root,
+                    node,
+                    scope,
+                    provider_id,
+                    display_root,
+                    file_entries,
+                    next_id,
+                    file_index,
+                    max_readable_bytes,
+                )
                 continue
-            if not item.is_file(follow_symlinks=False) or is_backup_name(item.name):
+            if not item.is_file(follow_symlinks=False):
                 continue
-            entry = make_file_entry(item_path, root, next_id, file_index, max_readable_bytes)
+            relative_path = item_path.relative_to(root).as_posix()
+            entry = make_file_entry(
+                item_path,
+                root,
+                display_root,
+                scope,
+                provider_id,
+                category_for_path(provider_id, relative_path),
+                next_id,
+                file_index,
+                max_readable_bytes,
+            )
             file_entries.append(entry)
             parent_node["children"].append(file_node(entry))
 
@@ -103,6 +247,10 @@ def walk_directory(
 def make_file_entry(
     file_path: Path,
     root: Path,
+    display_root: str,
+    scope: str,
+    provider_id: str,
+    category: str,
     next_id: list[int],
     file_index: dict[str, tuple[Path, Path]],
     max_readable_bytes: int,
@@ -110,19 +258,23 @@ def make_file_entry(
     next_id[0] += 1
     file_id = secrets.token_urlsafe(24)
     relative = file_path.relative_to(root).as_posix()
-    relative_path = f"{root.name}/{relative}"
-    kind = classify_file(file_path)
+    relative_path = join_display_path(display_root, relative)
     try:
         size = file_path.stat().st_size
     except OSError:
-        size, readable, reason = 0, False, "permission_denied"
+        size, readable, kind, reason = 0, False, "text", "permission_denied"
     else:
-        readable = kind != "binary" and size <= max_readable_bytes
-        reason = "binary" if kind == "binary" else "too_large" if size > max_readable_bytes else None
+        if is_sensitive_name(file_path.name):
+            readable, kind, reason = False, "sensitive", "sensitive"
+        else:
+            kind = classify_file(file_path)
+            readable = kind != "binary" and size <= max_readable_bytes
+            reason = "binary" if kind == "binary" else "too_large" if size > max_readable_bytes else None
     entry = {
         "id": file_id,
-        "providerId": "kiro",
-        "categoryName": category_name(relative),
+        "providerId": provider_id,
+        "scope": scope,
+        "categoryName": category,
         "relativePath": relative_path,
         "displayName": file_path.name,
         "kind": kind,
@@ -145,6 +297,7 @@ def file_node(entry: dict[str, object]) -> dict[str, object]:
         "name": entry["displayName"],
         "relativePath": entry["relativePath"],
         "fileId": entry["id"],
+        "scope": entry["scope"],
         "kind": entry["kind"],
         "sizeBytes": entry["sizeBytes"],
         "readable": entry["readable"],
@@ -160,14 +313,40 @@ def sort_tree(node: dict[str, object]) -> None:
             sort_tree(child)
 
 
-def category_name(relative_path: str) -> str:
+def category_for_path(provider_id: str, relative_path: str) -> str:
     first_part = PurePosixPath(relative_path).parts[0].casefold()
-    return {"knowledge": "Knowledge", "skills": "Skills", "steering": "Steering"}.get(first_part, "Other")
+    categories = {
+        "kiro": {"agents": "Agents", "hooks": "Hooks", "knowledge": "Knowledge", "lessons": "Lessons", "skills": "Skills", "steering": "Steering", "tasks": "Tasks"},
+        "claude": {"agents": "Agents", "commands": "Commands", "rules": "Rules", "skills": "Skills"},
+        "gemini": {"commands": "Commands", "skills": "Skills"},
+        "codex": {"skills": "Skills"},
+    }
+    return categories.get(provider_id, {}).get(first_part, "Other")
+
+
+def join_display_path(prefix: str, relative_path: str) -> str:
+    if prefix in {"", "."}:
+        return relative_path
+    return f"{prefix.rstrip('/')}/{relative_path}"
+
+
+def is_excluded_directory(name: str) -> bool:
+    return name.casefold() in EXCLUDED_DIRECTORY_NAMES
 
 
 def is_backup_name(name: str) -> bool:
     lowered = name.casefold()
     return lowered.endswith("~") or lowered.startswith(".#") or any(lowered.endswith(suffix) for suffix in BACKUP_SUFFIXES)
+
+
+def is_sensitive_name(name: str) -> bool:
+    lowered = name.casefold()
+    return (
+        lowered in SENSITIVE_FILE_NAMES
+        or lowered.startswith(".env")
+        or any(token in lowered for token in SENSITIVE_TOKENS)
+        or Path(name).suffix.casefold() in {".key", ".pem", ".p12", ".pfx"}
+    )
 
 
 def classify_file(file_path: Path) -> str:
@@ -204,3 +383,11 @@ def path_is_link(path: Path) -> bool:
     attributes = getattr(path.lstat(), "st_file_attributes", 0)
     reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
     return path.is_symlink() or bool(attributes & reparse_point)
+
+
+def is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
