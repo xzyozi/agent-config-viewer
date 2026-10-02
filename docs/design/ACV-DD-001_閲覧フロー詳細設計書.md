@@ -25,12 +25,13 @@ related_documents:
 
 ## 2. HTTP Interface
 
-| 操作         | URL                                        | 成功応答                                                      | 失敗応答                                                 |
-| :----------- | :----------------------------------------- | :------------------------------------------------------------ | :------------------------------------------------------- |
-| カタログ取得 | `GET /api/catalog`                         | `ProviderResult[]`。ユーザーrootの`tree`と`fileEntries`を含む | HTTP 500相当                                             |
-| 本文取得     | `GET /api/files/<file-id>/content`         | UTF-8本文                                                     | `too_large`: 413、`binary`/`sensitive`: 415、その他: 404 |
-| 移行計画     | `GET /api/files/<file-id>/migration-plan`  | Kiro Skill bundleのread-only計画                              | 固定エラーコード                                         |
-| Skillコピー  | `POST /api/files/<file-id>/migration-copy` | Issue #12のコピー結果                                         | 固定エラーコード                                         |
+| 操作             | URL                                            | 成功応答                                                      | 失敗応答                                                 |
+| :--------------- | :--------------------------------------------- | :------------------------------------------------------------ | :------------------------------------------------------- |
+| カタログ取得     | `GET /api/catalog`                             | `ProviderResult[]`。ユーザーrootの`tree`と`fileEntries`を含む | HTTP 500相当                                             |
+| ディレクトリ展開 | `GET /api/directories/<directory-id>/children` | 指定ディレクトリ直下の`children`と`fileEntries`を含む         | 固定エラーコード                                         |
+| 本文取得         | `GET /api/files/<file-id>/content`             | UTF-8本文                                                     | `too_large`: 413、`binary`/`sensitive`: 415、その他: 404 |
+| 移行計画         | `GET /api/files/<file-id>/migration-plan`      | Kiro Skill bundleのread-only計画                              | 固定エラーコード                                         |
+| Skillコピー      | `POST /api/files/<file-id>/migration-copy`     | Issue #12のコピー結果                                         | 固定エラーコード                                         |
 
 File IDはProvider/rootをまたいで一意に発行する。APIは実パスを受け取らず、本文取得時にFile IDと許可rootの対応を再検証する。
 

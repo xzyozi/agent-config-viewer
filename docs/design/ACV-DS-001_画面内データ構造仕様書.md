@@ -67,12 +67,11 @@ DAO、データベース、localStorage、IndexedDBは使用しない。サー�
 
 ## 4. 生命周期と保護
 
-1. `/api/catalog`がユーザーrootのTreeNodeとFileEntryメタデータを作成する。
-2. `Catalog.discover`がBrowseStateを初期化する。
-3. 初期描画ではディレクトリを展開しない。
-4. 選択したFileEntryが`readable`の場合だけ本文APIを呼ぶ。
-5. サーバーが再検証した本文を返すと、kindに応じたViewで表示する。
-6. Provider切替、Refresh、ページ再読込、サーバー再起動で選択・Previewを破棄する。
+1. `/api/catalog`がユーザーroot直下のTreeNodeとFileEntryメタデータを作成する。
+2. ディレクトリ展開時に`/api/directories/<directory-id>/children`が1階層だけを追加取得する。
+3. 選択したFileEntryが`readable`の場合だけ本文APIを呼ぶ。
+4. サーバーが再検証した本文を返すと、kindに応じたViewで表示する。
+5. Provider切替、Refresh、ページ再読込、サーバー再起動で選択・Previewを破棄する。
 
 ## 5. 改訂履歴
 

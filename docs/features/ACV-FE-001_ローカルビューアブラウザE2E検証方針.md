@@ -31,6 +31,7 @@ CIは実ユーザーの設定を読まず、一時ユーザーrootにKiro、Clau
 
 - Kiro、Claude、Gemini、Codexのタブが固定順で表示される。
 - 初期表示で`.kiro-explorer details[open]`が0件である。
+- 初期表示でファイルボタンが0件であり、root展開後に直下要素が追加される。
 - 必要なディレクトリを操作すると対象ファイルが表示される。
 - JSONが整形JSON、TOML等がソースコードView、MarkdownがMarkdown Viewで表示される。
 - バックアップ、ログ、セッション、一時領域が表示されない。
