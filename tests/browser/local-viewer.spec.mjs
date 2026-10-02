@@ -8,6 +8,7 @@ test("keeps configuration roots collapsed until selected", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("tab")).toHaveText(["Kiro", "Claude", "Gemini", "Codex"]);
     await expect(page.locator(".kiro-explorer details[open]")).toHaveCount(0);
+    await expect(page.locator(".kiro-explorer .file-entry")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "~/.kiro/steering/safe.md.bak" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "~/.kiro/logs/runtime.log" })).toHaveCount(0);
     await expect(page.locator(".preview-placeholder")).toBeVisible();
@@ -31,7 +32,6 @@ test("keeps configuration roots collapsed until selected", async ({ page }) => {
     await page.getByRole("link", { name: "Skill" }).click();
     await expect(page.locator(".file-preview .preview-name")).toContainText("~/.kiro/skills/example/SKILL.md");
     await page.getByRole("button", { name: "選択解除" }).click();
-    await openDirectory(page, "~/.kiro");
     await page.getByRole("button", { name: "~/.kiro/settings.json" }).click();
     await expect(page.locator(".source-json")).toContainText('"enabled": true');
 });
