@@ -22,7 +22,7 @@ export class BrowserView {
         this.renderMessage("設定内容や詳細な例外情報は表示しません。", "notice");
     }
 
-    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh) {
+    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle) {
         const results = browseState.providerResults;
         const selected = results.find((result) => result.providerId === browseState.selectedProviderId) ?? results[0];
         if (!selected) {
@@ -41,7 +41,7 @@ export class BrowserView {
         panel.setAttribute("role", "tabpanel");
         panel.setAttribute("tabindex", "0");
         panel.setAttribute("aria-labelledby", `tab-${selected.providerId}`);
-        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh);
+        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, browseState.directoryLoadingKey, browseState.directoryErrorKey);
         this.catalog.replaceChildren(tabs, panel);
     }
 
@@ -69,7 +69,7 @@ export class BrowserView {
         queueMicrotask(() => this.document.querySelector(`#tab-${results[next].providerId}`)?.focus());
     }
 
-    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh) {
+    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, directoryLoadingKey, directoryErrorKey) {
         const heading = this.document.createElement("div");
         heading.className = "provider-heading";
         const title = this.document.createElement("div");
@@ -83,7 +83,7 @@ export class BrowserView {
         refreshButton.className = "refresh-button";
         refreshButton.type = "button";
         refreshButton.textContent = "更新";
-        refreshButton.title = ".kiroの構成を再読み込み";
+        refreshButton.title = "設定構成を再読み込み";
         refreshButton.addEventListener("click", () => onRefresh?.());
         heading.append(title, refreshButton);
         panel.append(heading);
@@ -95,7 +95,7 @@ export class BrowserView {
         const layout = this.document.createElement("div");
         layout.className = "browse-layout";
         layout.append(
-            treeSection(this.document, result.tree, result.fileEntries, preview?.fileId ?? null, onFileSelect),
+            treeSection(this.document, result.tree, result.fileEntries, preview?.fileId ?? null, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey),
             previewSection(this.document, preview, result.fileEntries.find((entry) => entry.id === preview?.fileId) ?? null, result.fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect),
         );
         panel.append(layout);
@@ -109,7 +109,7 @@ export class BrowserView {
     }
 }
 
-function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect) {
+function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey) {
     const section = document.createElement("aside");
     section.className = "kiro-explorer";
     section.setAttribute("aria-label", "設定構成エクスプローラー");
@@ -123,30 +123,37 @@ function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect) 
     header.append(title, count);
     section.append(header);
     if (!tree) {
-        appendText(document, section, "対象の .kiro はありません。", "empty");
+        appendText(document, section, "対象の設定rootはありません。", "empty");
         return section;
     }
     const rootList = document.createElement("ul");
     rootList.className = "kiro-tree";
-    for (const child of tree.children ?? []) rootList.append(treeNode(document, child, selectedFileId, onFileSelect));
+    for (const child of tree.children ?? []) rootList.append(treeNode(document, child, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey));
     section.append(rootList);
     return section;
 }
 
-function treeNode(document, node, selectedFileId, onFileSelect) {
+function treeNode(document, node, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey) {
     const item = document.createElement("li");
     item.className = `tree-node tree-node-${node.type}`;
     if (node.type === "directory") {
         const details = document.createElement("details");
-        details.open = false;
+        details.open = Boolean(node.open);
         const summary = document.createElement("summary");
         summary.className = "tree-directory";
         summary.textContent = node.name;
         summary.title = node.relativePath;
+        summary.addEventListener("click", (event) => {
+            event.preventDefault();
+            onDirectoryToggle(node);
+        });
+        const directoryKey = directoryKeyOf(node);
+        if (directoryKey === directoryLoadingKey) appendDirectoryState(document, summary, "読込中…");
+        if (directoryKey === directoryErrorKey) appendDirectoryState(document, summary, "読込失敗");
         details.append(summary);
         const children = document.createElement("ul");
         children.className = "tree-children";
-        for (const child of node.children ?? []) children.append(treeNode(document, child, selectedFileId, onFileSelect));
+        for (const child of node.children ?? []) children.append(treeNode(document, child, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey));
         details.append(children);
         item.append(details);
         return item;
@@ -172,6 +179,17 @@ function treeNode(document, node, selectedFileId, onFileSelect) {
     button.addEventListener("click", () => onFileSelect(node.fileId));
     item.append(button);
     return item;
+}
+
+function appendDirectoryState(document, parent, text) {
+    const state = document.createElement("span");
+    state.className = "tree-directory-state";
+    state.textContent = text;
+    parent.append(state);
+}
+
+function directoryKeyOf(node) {
+    return node?.directoryId ?? node?.relativePath ?? null;
 }
 
 function previewSection(document, preview, fileEntry, fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect) {

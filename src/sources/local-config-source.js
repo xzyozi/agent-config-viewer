@@ -19,6 +19,15 @@ export class LocalConfigSource {
         return providers.map((provider) => byId.get(provider.id) ?? missingResult(provider.id));
     }
 
+    async listDirectory(directoryId) {
+        const response = await this.fetchFn(`/api/directories/${encodeURIComponent(directoryId)}/children`, { headers: { Accept: "application/json" } });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || payload.directoryId !== directoryId || !Array.isArray(payload.children) || !Array.isArray(payload.fileEntries)) {
+            throw new FileReadError("read_failed");
+        }
+        return payload;
+    }
+
     async readText(fileId) {
         const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/content`, { headers: { Accept: "application/json" } });
         const payload = await response.json().catch(() => null);

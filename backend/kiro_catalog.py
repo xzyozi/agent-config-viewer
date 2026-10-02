@@ -50,6 +50,7 @@ KIND_BY_SUFFIX = {
     ".yml": "yaml",
 }
 SAMPLE_BYTES = 512
+DirectoryRecord = tuple[Path, Path, str, str, str]
 
 
 def scan_provider(
@@ -57,24 +58,24 @@ def scan_provider(
     home_root: Path,
     next_id: list[int],
     file_index: dict[str, tuple[Path, Path]],
+    directory_index: dict[str, DirectoryRecord],
     max_readable_bytes: int,
 ) -> dict[str, object]:
-    tree = directory_node(str(specification["label"]), str(specification["id"]))
+    tree = directory_node(str(specification["label"]), str(specification["id"]), loaded=True)
     file_entries: list[dict[str, object]] = []
     found_source = False
     errors: list[str] = []
     for source in specification["sources"]:
         scope = str(source["scope"])
-        base = home_root
-        source_root = base / str(source["root"])
+        source_root = home_root / str(source["root"])
         display_root = str(source["displayRoot"])
         try:
             if source.get("files"):
-                source_node = directory_node(display_root, display_root)
+                source_node = directory_node(display_root, display_root, loaded=True)
                 source_found = scan_fixed_files(
                     source,
                     source_root,
-                    base,
+                    home_root,
                     display_root,
                     scope,
                     str(specification["id"]),
@@ -93,8 +94,9 @@ def scan_provider(
                     file_entries,
                     next_id,
                     file_index,
+                    directory_index,
                     max_readable_bytes,
-                    base,
+                    home_root,
                 )
             if source_found:
                 tree["children"].append(source_node)
@@ -124,28 +126,17 @@ def scan_directory_root(
     file_entries: list[dict[str, object]],
     next_id: list[int],
     file_index: dict[str, tuple[Path, Path]],
+    directory_index: dict[str, DirectoryRecord],
     max_readable_bytes: int,
     allowed_parent: Path,
 ) -> tuple[bool, dict[str, object]]:
-    source_node = directory_node(display_root, display_root)
     if not root.is_dir() or path_is_link(root):
-        return False, source_node
+        return False, directory_node(display_root, display_root, loaded=False)
     resolved_root = root.resolve(strict=True)
     if not is_within(resolved_root, allowed_parent):
-        return False, source_node
-    walk_directory(
-        resolved_root,
-        resolved_root,
-        source_node,
-        scope,
-        provider_id,
-        display_root,
-        file_entries,
-        next_id,
-        file_index,
-        max_readable_bytes,
-    )
-    return True, source_node
+        return False, directory_node(display_root, display_root, loaded=False)
+    directory_id = register_directory(resolved_root, resolved_root, scope, provider_id, display_root, directory_index)
+    return True, directory_node(display_root, display_root, directory_id=directory_id, loaded=False)
 
 
 def scan_fixed_files(
@@ -189,48 +180,41 @@ def scan_fixed_files(
     return found
 
 
-def walk_directory(
-    directory: Path,
-    root: Path,
-    parent_node: dict[str, object],
-    scope: str,
-    provider_id: str,
-    display_root: str,
-    file_entries: list[dict[str, object]],
-    next_id: list[int],
+def list_directory(
+    directory_id: str,
+    directory_index: dict[str, DirectoryRecord],
     file_index: dict[str, tuple[Path, Path]],
+    next_id: list[int],
     max_readable_bytes: int,
-) -> None:
-    with os.scandir(directory) as items:
+) -> dict[str, object]:
+    record = directory_index.get(directory_id)
+    if record is None:
+        raise KeyError(directory_id)
+    directory, allowed_root, scope, provider_id, display_root = record
+    if path_is_link(directory):
+        raise OSError("directory link rejected")
+    resolved_directory = directory.resolve(strict=True)
+    if not resolved_directory.is_dir() or not is_within(resolved_directory, allowed_root):
+        raise OSError("directory outside allowed root")
+    children: list[dict[str, object]] = []
+    file_entries: list[dict[str, object]] = []
+    with os.scandir(resolved_directory) as items:
         for item in sorted(items, key=lambda entry: entry.name.casefold()):
             if is_link(item) or is_backup_name(item.name):
                 continue
             item_path = Path(item.path)
+            relative_path = item_path.relative_to(allowed_root).as_posix()
             if item.is_dir(follow_symlinks=False):
                 if is_excluded_directory(item.name):
                     continue
-                relative_path = item_path.relative_to(root).as_posix()
-                node = directory_node(item.name, join_display_path(display_root, relative_path))
-                parent_node["children"].append(node)
-                walk_directory(
-                    item_path,
-                    root,
-                    node,
-                    scope,
-                    provider_id,
-                    display_root,
-                    file_entries,
-                    next_id,
-                    file_index,
-                    max_readable_bytes,
-                )
+                child_id = register_directory(item_path.resolve(strict=True), allowed_root, scope, provider_id, display_root, directory_index)
+                children.append(directory_node(item.name, join_display_path(display_root, relative_path), directory_id=child_id, loaded=False))
                 continue
             if not item.is_file(follow_symlinks=False):
                 continue
-            relative_path = item_path.relative_to(root).as_posix()
             entry = make_file_entry(
                 item_path,
-                root,
+                allowed_root,
                 display_root,
                 scope,
                 provider_id,
@@ -240,7 +224,22 @@ def walk_directory(
                 max_readable_bytes,
             )
             file_entries.append(entry)
-            parent_node["children"].append(file_node(entry))
+            children.append(file_node(entry))
+    children.sort(key=lambda child: (child["type"] != "directory", child["name"].casefold()))
+    return {"directoryId": directory_id, "children": children, "fileEntries": file_entries}
+
+
+def register_directory(
+    directory: Path,
+    allowed_root: Path,
+    scope: str,
+    provider_id: str,
+    display_root: str,
+    directory_index: dict[str, DirectoryRecord],
+) -> str:
+    directory_id = secrets.token_urlsafe(24)
+    directory_index[directory_id] = (directory, allowed_root, scope, provider_id, display_root)
+    return directory_id
 
 
 def make_file_entry(
@@ -286,8 +285,16 @@ def make_file_entry(
     return entry
 
 
-def directory_node(name: str, relative_path: str) -> dict[str, object]:
-    return {"type": "directory", "name": name, "relativePath": relative_path, "children": []}
+def directory_node(name: str, relative_path: str, directory_id: str | None = None, loaded: bool = False) -> dict[str, object]:
+    return {
+        "type": "directory",
+        "name": name,
+        "relativePath": relative_path,
+        "children": [],
+        "directoryId": directory_id,
+        "loaded": loaded,
+        "open": False,
+    }
 
 
 def file_node(entry: dict[str, object]) -> dict[str, object]:

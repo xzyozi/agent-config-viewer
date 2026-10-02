@@ -19,12 +19,19 @@ export class Catalog {
             preview: null,
             migrationPlan: null,
             noticeCode: null,
+            directoryLoadingKey: null,
+            directoryErrorKey: null,
         };
     }
 
     async readText(fileEntry) {
         if (!fileEntry.readable) throw { code: fileEntry.unreadableReason ?? "read_failed" };
         return this.source.readText(fileEntry.id);
+    }
+
+    async listDirectory(directoryId) {
+        if (typeof directoryId !== "string" || !directoryId) throw { code: "read_failed" };
+        return this.source.listDirectory(directoryId);
     }
 
     async planSkillMigration(fileEntry) {

@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
-from backend.kiro_catalog import is_binary_content, path_is_link, scan_provider as scan_config_provider
+from backend.kiro_catalog import is_binary_content, list_directory as list_config_directory, path_is_link, scan_provider as scan_config_provider
 from backend.skill_migration import SkillMigrationError, copy_skill_bundle, plan_skill_migration
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -18,6 +18,7 @@ HOME_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_HOME_ROOT", Path.home())).r
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 MAX_COPY_REQUEST_BYTES = 4096
 FILE_INDEX: dict[str, tuple[Path, Path]] = {}
+DIRECTORY_INDEX: dict[str, tuple[Path, Path, str, str, str]] = {}
 FILE_INDEX_LOCK = threading.RLock()
 FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,}")
 COPY_REQUEST_KEYS = frozenset({"snapshotDigest", "destinationName", "confirmed"})
@@ -76,10 +77,13 @@ def is_within(path: Path, parent: Path) -> bool:
 def catalog_payload() -> dict[str, object]:
     next_id = [0]
     file_index: dict[str, tuple[Path, Path]] = {}
-    provider_results = [scan_config_provider(specification, HOME_ROOT, next_id, file_index, MAX_READABLE_BYTES) for specification in PROVIDERS]
+    directory_index: dict[str, tuple[Path, Path, str, str, str]] = {}
+    provider_results = [scan_config_provider(specification, HOME_ROOT, next_id, file_index, directory_index, MAX_READABLE_BYTES) for specification in PROVIDERS]
     with FILE_INDEX_LOCK:
         FILE_INDEX.clear()
         FILE_INDEX.update(file_index)
+        DIRECTORY_INDEX.clear()
+        DIRECTORY_INDEX.update(directory_index)
     return {"providerResults": provider_results}
 
 
@@ -119,6 +123,13 @@ def file_id_for_action(request_path: str, action: str) -> str | None:
     return None
 
 
+def directory_id_for_action(request_path: str, action: str) -> str | None:
+    parts = request_path.split("/")
+    if len(parts) == 5 and parts[1:3] == ["api", "directories"] and parts[4] == action:
+        return parts[3]
+    return None
+
+
 def json_object_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -149,6 +160,10 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         if request.path == "/api/catalog":
             self.send_json(catalog_payload())
             return
+        directory_id = directory_id_for_action(request.path, "children")
+        if directory_id is not None:
+            self.send_directory_children(directory_id)
+            return
         migration_plan_file_id = file_id_for_action(request.path, "migration-plan")
         if migration_plan_file_id is not None:
             self.send_migration_plan(migration_plan_file_id)
@@ -172,6 +187,17 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
             self.send_json({"code": "copy_failed"}, HTTPStatus.NOT_FOUND)
             return
         self.send_migration_copy(file_id)
+
+    def send_directory_children(self, directory_id: str) -> None:
+        if not FILE_ID_PATTERN.fullmatch(directory_id):
+            self.send_json({"code": "read_failed"}, HTTPStatus.NOT_FOUND)
+            return
+        try:
+            with FILE_INDEX_LOCK:
+                payload = list_config_directory(directory_id, DIRECTORY_INDEX, FILE_INDEX, [len(FILE_INDEX)], MAX_READABLE_BYTES)
+            self.send_json(payload)
+        except (KeyError, OSError):
+            self.send_json({"code": "read_failed"}, HTTPStatus.NOT_FOUND)
 
     def send_content(self, file_id: str) -> None:
         try:
