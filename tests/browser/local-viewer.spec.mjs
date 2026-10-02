@@ -8,16 +8,15 @@ test("keeps configuration roots collapsed until selected", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("tab")).toHaveText(["Kiro", "Claude", "Gemini", "Codex"]);
     await expect(page.locator(".kiro-explorer details[open]")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: ".kiro/steering/safe.md.bak" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: ".kiro/logs/runtime.log" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "~/.kiro/steering/safe.md.bak" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "~/.kiro/logs/runtime.log" })).toHaveCount(0);
     await expect(page.locator(".preview-placeholder")).toBeVisible();
 
-    await openDirectory(page, ".kiro");
+    await openDirectory(page, "~/.kiro");
     await openDirectory(page, "steering");
-    await expect(page.getByRole("button", { name: ".kiro/steering/safe.md" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "~/.kiro/steering/global.md" })).toHaveCount(1);
-    await page.getByRole("button", { name: ".kiro/steering/safe.md" }).click();
-    await expect(page.locator(".markdown-preview h1")).toHaveText("Project Kiro safe");
+    await expect(page.getByRole("button", { name: "~/.kiro/steering/safe.md" })).toBeVisible();
+    await page.getByRole("button", { name: "~/.kiro/steering/safe.md" }).click();
+    await expect(page.locator(".markdown-preview h1")).toHaveText("User Kiro safe");
     await expect(page.locator(".markdown-preview table")).toHaveCount(1);
     await expect(page.locator(".markdown-preview")).toContainText("<script id=\"unsafe\">");
     await expect(page.locator("#unsafe")).toHaveCount(0);
@@ -29,36 +28,36 @@ test("keeps configuration roots collapsed until selected", async ({ page }) => {
     ]);
     expect(preview.x).toBeGreaterThan(fileList.x + fileList.width);
 
-    await page.getByRole("link", { name: "Project skill" }).click();
-    await expect(page.locator(".file-preview .preview-name")).toContainText(".kiro/skills/project/SKILL.md");
+    await page.getByRole("link", { name: "Skill" }).click();
+    await expect(page.locator(".file-preview .preview-name")).toContainText("~/.kiro/skills/example/SKILL.md");
     await page.getByRole("button", { name: "選択解除" }).click();
-    await openDirectory(page, ".kiro");
-    await page.getByRole("button", { name: ".kiro/settings.json" }).click();
+    await openDirectory(page, "~/.kiro");
+    await page.getByRole("button", { name: "~/.kiro/settings.json" }).click();
     await expect(page.locator(".source-json")).toContainText('"enabled": true');
 });
 
 test("shows provider roots and extension-specific source views", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("tab", { name: "Claude" }).click();
-    await openDirectory(page, ".claude");
+    await openDirectory(page, "~/.claude");
     await openDirectory(page, "rules");
-    await expect(page.getByRole("button", { name: ".claude/rules/example.md" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "~/.claude/rules/example.md" })).toBeVisible();
     await page.getByRole("tab", { name: "Claude" }).click();
     await openDirectory(page, "~");
-    await expect(page.getByRole("button", { name: "~/.claude/CLAUDE.md" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "~/CLAUDE.md" })).toBeVisible();
 
     await page.getByRole("tab", { name: "Gemini" }).click();
-    await openDirectory(page, ".gemini");
+    await openDirectory(page, "~/.gemini");
     await openDirectory(page, "commands");
-    await page.getByRole("button", { name: ".gemini/commands/example.toml" }).click();
+    await page.getByRole("button", { name: "~/.gemini/commands/example.toml" }).click();
     await expect(page.locator(".source-toml")).toBeVisible();
     await page.getByRole("tab", { name: "Gemini" }).click();
     await openDirectory(page, "~");
     await expect(page.getByRole("button", { name: "~/GEMINI.md" })).toBeVisible();
 
     await page.getByRole("tab", { name: "Codex" }).click();
-    await openDirectory(page, ".codex");
-    await expect(page.getByRole("button", { name: ".codex/config.toml" })).toBeVisible();
+    await openDirectory(page, "~/.codex");
+    await expect(page.getByRole("button", { name: "~/.codex/config.toml" })).toBeVisible();
 });
 
 test("shows protected metadata without rendering protected content", async ({ page }) => {
@@ -72,9 +71,9 @@ test("shows protected metadata without rendering protected content", async ({ pa
 
 test("shows binary metadata without rendering binary content", async ({ page }) => {
     await page.goto("/");
-    await openDirectory(page, ".kiro");
+    await openDirectory(page, "~/.kiro");
     await openDirectory(page, "steering");
-    await page.getByRole("button", { name: ".kiro/steering/icon.bin" }).click();
+    await page.getByRole("button", { name: "~/.kiro/steering/icon.bin" }).click();
     await expect(page.getByText("バイナリファイルの本文は表示せず、ファイル情報だけを表示します。")).toBeVisible();
     await expect(page.locator(".file-info")).toContainText("binary");
     await expect(page.locator(".text-preview, .markdown-preview")).toHaveCount(0);
@@ -82,9 +81,9 @@ test("shows binary metadata without rendering binary content", async ({ page }) 
 
 test("does not render an oversized file", async ({ page }) => {
     await page.goto("/");
-    await openDirectory(page, ".kiro");
+    await openDirectory(page, "~/.kiro");
     await openDirectory(page, "steering");
-    await page.getByRole("button", { name: ".kiro/steering/oversized.md" }).click();
+    await page.getByRole("button", { name: "~/.kiro/steering/oversized.md" }).click();
     await expect(page.getByText("ファイルが2MiBを超えるため、本文を表示しません。")).toBeVisible();
 });
 

@@ -19,11 +19,8 @@ def write_bytes(root: Path, relative_path: str, content: bytes) -> None:
 
 
 def main() -> None:
-    fixture_root = Path(sys.argv[1])
-    project_root = fixture_root / "project"
-    user_root = fixture_root / "user"
-
-    write(project_root, ".kiro/steering/safe.md", """# Project Kiro safe
+    user_root = Path(sys.argv[1])
+    write(user_root, ".kiro/steering/safe.md", """# User Kiro safe
 
 <script id="unsafe">window.e2eExecuted = true</script>
 
@@ -34,24 +31,20 @@ def main() -> None:
 
 | Name | Value |
 | --- | --- |
-| Scope | Project Kiro |
+| Scope | User Kiro |
 
-[Project skill](../skills/project/SKILL.md)
+[Skill](../skills/example/SKILL.md)
 [External](https://example.invalid)
 [Unsafe](javascript:alert(1))
 """)
-    write(project_root, ".kiro/steering/notes.txt", "plain text in the project Kiro tree\n")
-    write(project_root, ".kiro/settings.json", '{"name":"viewer","enabled":true}')
-    write(project_root, ".kiro/scripts/check.py", "print('project check')\n")
-    write(project_root, ".kiro/steering/safe.md.bak", "backup must not appear\n")
-    write_bytes(project_root, ".kiro/steering/icon.bin", b"\x00\x01binary")
-    write(project_root, ".kiro/skills/project/SKILL.md", "# Project skill\n")
-    oversized = project_root / ".kiro/steering/oversized.md"
+    write(user_root, ".kiro/steering/notes.txt", "plain text in the user Kiro tree\n")
+    write(user_root, ".kiro/settings.json", '{"name":"viewer","enabled":true}')
+    write(user_root, ".kiro/scripts/check.py", "print('user check')\n")
+    write(user_root, ".kiro/steering/safe.md.bak", "backup must appear nowhere\n")
+    write_bytes(user_root, ".kiro/steering/icon.bin", b"\x00\x01binary")
+    oversized = user_root / ".kiro/steering/oversized.md"
     oversized.parent.mkdir(parents=True, exist_ok=True)
     oversized.write_bytes(b"x" * (MAX_READABLE_BYTES + 1))
-    write(project_root, ".claude/rules/example.md", "# Project Claude rule\n")
-    write(project_root, ".gemini/commands/example.toml", 'name = "project-example"\n')
-    write(project_root, ".codex/config.toml", 'model = "project-test"\n')
 
     write(user_root, ".kiro/steering/global.md", "# User Kiro steering\n")
     write(user_root, ".kiro/knowledge/guide.md", "# User Kiro knowledge\n")
@@ -71,7 +64,9 @@ def main() -> None:
     write(user_root, ".kiro/db_config.ini", "password=not-for-display\n")
     write(user_root, ".claude/CLAUDE.md", "# User Claude instruction\n")
     write(user_root, ".claude/commands/user.md", "# User Claude command\n")
+    write(user_root, ".claude/rules/example.md", "# User Claude rule\n")
     write(user_root, "GEMINI.md", "# User Gemini instruction\n")
+    write(user_root, ".gemini/commands/example.toml", 'name = "user-example"\n')
     write(user_root, ".gemini/skills/user/SKILL.md", "# User Gemini skill\n")
     write(user_root, ".codex/config.toml", 'model = "user-test"\n')
 
