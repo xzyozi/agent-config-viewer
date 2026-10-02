@@ -19,11 +19,30 @@ export class LocalConfigSource {
         return providers.map((provider) => byId.get(provider.id) ?? missingResult(provider.id));
     }
 
+    async listDirectory(directoryId) {
+        const response = await this.fetchFn(`/api/directories/${encodeURIComponent(directoryId)}/children`, { headers: { Accept: "application/json" } });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || payload.directoryId !== directoryId || !Array.isArray(payload.children) || !Array.isArray(payload.fileEntries)) {
+            throw new FileReadError("read_failed");
+        }
+        return payload;
+    }
+
+    async resolveFileLink(fileId, target) {
+        const query = new URLSearchParams({ target }).toString();
+        const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/resolve?${query}`, { headers: { Accept: "application/json" } });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || !payload.fileEntry || typeof payload.fileEntry.id !== "string" || typeof payload.fileEntry.relativePath !== "string") {
+            throw new FileReadError("read_failed");
+        }
+        return payload.fileEntry;
+    }
+
     async readText(fileId) {
         const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/content`, { headers: { Accept: "application/json" } });
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload || typeof payload.content !== "string" || payload.fileId !== fileId) {
-            throw new FileReadError(payload?.code === "too_large" ? "too_large" : "read_failed");
+            throw new FileReadError(["too_large", "binary", "sensitive"].includes(payload?.code) ? payload.code : "read_failed");
         }
         return payload.content;
     }
@@ -74,4 +93,4 @@ function copyErrorCode(code) {
     return ["stale_plan", "destination_conflict", "copy_failed", "read_failed"].includes(code) ? code : "copy_failed";
 }
 
-function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" }; }
+function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], tree: null, errorKind: "not_found" }; }

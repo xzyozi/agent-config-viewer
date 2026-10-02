@@ -1,3 +1,5 @@
+import { renderMarkdown } from "./markdown-renderer.js";
+
 export class BrowserView {
     constructor(document) {
         this.document = document;
@@ -11,19 +13,23 @@ export class BrowserView {
     }
 
     renderScanning() {
-        this.setStatus("現在のユーザーのエージェント設定を確認しています…", "progress");
+        this.setStatus("対応するProviderの設定構成を確認しています…", "progress");
         this.catalog.replaceChildren();
     }
 
     renderError() {
-        this.setStatus("ローカル設定を取得できませんでした。server.py で起動していることを確認してください。", "error");
+        this.setStatus("設定構成を取得できませんでした。server.py で起動していることを確認してください。", "error");
         this.renderMessage("設定内容や詳細な例外情報は表示しません。", "notice");
     }
 
-    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle) {
+    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink) {
         const results = browseState.providerResults;
         const selected = results.find((result) => result.providerId === browseState.selectedProviderId) ?? results[0];
-        this.setStatus("起動ユーザーのホームにある許可済み設定ディレクトリを表示しています。");
+        if (!selected) {
+            this.renderMessage("表示対象のKiro構成がありません。", "empty");
+            return;
+        }
+        this.setStatus("対応するProviderの設定構成を表示しています。");
         const tabs = this.document.createElement("div");
         tabs.className = "provider-tabs";
         tabs.setAttribute("role", "tablist");
@@ -35,7 +41,7 @@ export class BrowserView {
         panel.setAttribute("role", "tabpanel");
         panel.setAttribute("tabindex", "0");
         panel.setAttribute("aria-labelledby", `tab-${selected.providerId}`);
-        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle);
+        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, browseState.directoryLoadingKey, browseState.directoryErrorKey);
         this.catalog.replaceChildren(tabs, panel);
     }
 
@@ -54,7 +60,6 @@ export class BrowserView {
         return tab;
     }
 
-
     handleTabKey(event, results, selectedProviderId, onProviderSelect) {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
@@ -64,31 +69,35 @@ export class BrowserView {
         queueMicrotask(() => this.document.querySelector(`#tab-${results[next].providerId}`)?.focus());
     }
 
-    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle) {
-        const title = this.document.createElement("h2");
-        title.textContent = result.label;
-        panel.append(title);
+    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, directoryLoadingKey, directoryErrorKey) {
+        const heading = this.document.createElement("div");
+        heading.className = "provider-heading";
+        const title = this.document.createElement("div");
+        const eyebrow = this.document.createElement("p");
+        eyebrow.className = "provider-eyebrow";
+        eyebrow.textContent = `${result.label} configuration`;
+        const headingTitle = this.document.createElement("h2");
+        headingTitle.textContent = result.label;
+        title.append(eyebrow, headingTitle);
+        const refreshButton = this.document.createElement("button");
+        refreshButton.className = "refresh-button";
+        refreshButton.type = "button";
+        refreshButton.textContent = "更新";
+        refreshButton.title = "設定構成を再読み込み";
+        refreshButton.addEventListener("click", () => onRefresh?.());
+        heading.append(title, refreshButton);
+        panel.append(heading);
         if (result.providerId === "kiro" && copyResult?.status === "copied") panel.append(copyResultSection(this.document, copyResult));
         if (result.status !== "ok") {
-            appendText(this.document, panel, providerMessage(result.status), "empty");
-            return;
-        }
-        if (!result.fileEntries.length) {
-            appendText(this.document, panel, "対象ファイルはありません。", "empty");
-            return;
-        }
-        const files = this.document.createElement("div");
-        files.className = "browse-files";
-        const selectedFileId = preview?.fileId ?? null;
-        const selectedFile = result.fileEntries.find((entry) => entry.id === selectedFileId) ?? null;
-        for (const [name, entries] of groupByCategory(result.fileEntries)) files.append(categorySection(this.document, name, entries, onFileSelect, selectedFileId));
-        if (!preview) {
-            panel.append(files);
+            appendText(this.document, panel, providerMessage(result.status, result.label), "empty");
             return;
         }
         const layout = this.document.createElement("div");
         layout.className = "browse-layout";
-        layout.append(files, previewSection(this.document, preview, selectedFile, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle));
+        layout.append(
+            treeSection(this.document, result.tree, result.fileEntries, preview?.fileId ?? null, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey),
+            previewSection(this.document, preview, result.fileEntries.find((entry) => entry.id === preview?.fileId) ?? null, result.fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink),
+        );
         panel.append(layout);
     }
 
@@ -100,17 +109,104 @@ export class BrowserView {
     }
 }
 
-function appendText(document, parent, text, className) { const element = document.createElement("p"); element.className = className; element.textContent = text; parent.append(element); }
-function providerMessage(status) { return { not_found: "このユーザーのホームには対象ディレクトリがありません。", permission_denied: "対象ディレクトリへのアクセスが許可されませんでした。", list_failed: "対象ディレクトリの一覧を取得できませんでした。" }[status]; }
-function groupByCategory(entries) { const groups = new Map(); for (const entry of entries) { const group = groups.get(entry.categoryName) ?? []; group.push(entry); groups.set(entry.categoryName, group); } return groups; }
-function categorySection(document, name, entries, onFileSelect, selectedFileId) { const section = document.createElement("div"); section.className = "category"; const title = document.createElement("h3"); title.textContent = name; const list = document.createElement("ul"); for (const entry of entries) { const item = document.createElement("li"); const button = document.createElement("button"); button.className = "file-entry"; button.type = "button"; button.textContent = entry.relativePath; if (entry.id === selectedFileId) { button.classList.add("is-selected"); button.setAttribute("aria-current", "true"); } button.addEventListener("click", () => onFileSelect(entry.id)); item.append(button); list.append(item); } section.append(title, list); return section; }
-function previewSection(document, preview, fileEntry, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle) {
+function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey) {
+    const section = document.createElement("aside");
+    section.className = "kiro-explorer";
+    section.setAttribute("aria-label", "設定構成エクスプローラー");
+    const header = document.createElement("div");
+    header.className = "explorer-header";
+    const title = document.createElement("h3");
+    title.textContent = "Explorer";
+    const count = document.createElement("span");
+    count.className = "explorer-count";
+    count.textContent = `${fileEntries.length} files`;
+    header.append(title, count);
+    section.append(header);
+    if (!tree) {
+        appendText(document, section, "対象の設定rootはありません。", "empty");
+        return section;
+    }
+    const rootList = document.createElement("ul");
+    rootList.className = "kiro-tree";
+    for (const child of tree.children ?? []) rootList.append(treeNode(document, child, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey));
+    section.append(rootList);
+    return section;
+}
+
+function treeNode(document, node, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey) {
+    const item = document.createElement("li");
+    item.className = `tree-node tree-node-${node.type}`;
+    if (node.type === "directory") {
+        const details = document.createElement("details");
+        details.open = Boolean(node.open);
+        const summary = document.createElement("summary");
+        summary.className = "tree-directory";
+        summary.textContent = node.name;
+        summary.title = node.relativePath;
+        summary.addEventListener("click", (event) => {
+            event.preventDefault();
+            onDirectoryToggle(node);
+        });
+        const directoryKey = directoryKeyOf(node);
+        if (directoryKey === directoryLoadingKey) appendDirectoryState(document, summary, "読込中…");
+        if (directoryKey === directoryErrorKey) appendDirectoryState(document, summary, "読込失敗");
+        details.append(summary);
+        const children = document.createElement("ul");
+        children.className = "tree-children";
+        for (const child of node.children ?? []) children.append(treeNode(document, child, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey));
+        details.append(children);
+        item.append(details);
+        return item;
+    }
+    const button = document.createElement("button");
+    button.className = "file-entry";
+    button.type = "button";
+    button.setAttribute("aria-label", node.relativePath);
+    button.title = node.relativePath;
+    button.dataset.kind = node.kind;
+    if (node.fileId === selectedFileId) {
+        button.classList.add("is-selected");
+        button.setAttribute("aria-current", "true");
+    }
+    if (!node.readable) button.classList.add("is-unreadable");
+    const name = document.createElement("span");
+    name.className = "tree-file-name";
+    name.textContent = node.name;
+    const kind = document.createElement("span");
+    kind.className = "tree-file-kind";
+    kind.textContent = node.readable ? fileKindLabel(node.kind) : "info";
+    button.append(name, kind);
+    button.addEventListener("click", () => onFileSelect(node.fileId));
+    item.append(button);
+    return item;
+}
+
+function appendDirectoryState(document, parent, text) {
+    const state = document.createElement("span");
+    state.className = "tree-directory-state";
+    state.textContent = text;
+    parent.append(state);
+}
+
+function directoryKeyOf(node) {
+    return node?.directoryId ?? node?.relativePath ?? null;
+}
+
+function previewSection(document, preview, fileEntry, fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink) {
     const section = document.createElement("section");
     section.className = "file-preview";
     const header = document.createElement("div");
     header.className = "file-preview-header";
-    const title = document.createElement("h3");
-    title.textContent = "ファイル本文";
+    const title = document.createElement("div");
+    const heading = document.createElement("h3");
+    heading.textContent = fileEntry?.kind === "markdown" ? "Markdown Preview" : "Preview";
+    title.append(heading);
+    if (fileEntry) {
+        const path = document.createElement("p");
+        path.className = "preview-name";
+        path.textContent = fileEntry.relativePath;
+        title.append(path);
+    }
     const actions = document.createElement("div");
     actions.className = "file-preview-actions";
     if (isKiroSkill(fileEntry)) {
@@ -122,30 +218,76 @@ function previewSection(document, preview, fileEntry, migrationPlan, migrationCo
         planButton.addEventListener("click", onMigrationPlan);
         actions.append(planButton);
     }
-    const clearButton = document.createElement("button");
-    clearButton.className = "clear-selection";
-    clearButton.type = "button";
-    clearButton.textContent = "選択解除";
-    clearButton.addEventListener("click", onSelectionClear);
-    actions.append(clearButton);
+    if (fileEntry) {
+        const clearButton = document.createElement("button");
+        clearButton.className = "clear-selection";
+        clearButton.type = "button";
+        clearButton.textContent = "選択解除";
+        clearButton.addEventListener("click", onSelectionClear);
+        actions.append(clearButton);
+    }
     header.append(title, actions);
     section.append(header);
-    if (preview.status === "reading") {
-        appendText(document, section, "本文を読込中です…", "empty");
+    if (!fileEntry) {
+        appendText(document, section, "左のExplorerからファイルを選択してください。", "preview-placeholder");
+        return section;
+    }
+    section.append(fileInfo(document, fileEntry));
+    if (!preview || preview.status === "reading") {
+        if (preview?.status === "reading") appendText(document, section, "本文を読込中です…", "empty");
+        else appendText(document, section, "プレビューするファイルを選択してください。", "preview-placeholder");
         return section;
     }
     if (preview.status === "error") {
         appendText(document, section, previewMessage(preview.code), "notice");
         return section;
     }
-    const name = document.createElement("p");
-    name.className = "preview-name";
-    name.textContent = preview.displayName;
-    const content = document.createElement("pre");
-    content.textContent = preview.content;
-    section.append(name, content);
+    if (fileEntry.kind === "markdown") {
+        const markdown = document.createElement("article");
+        markdown.className = "markdown-preview";
+        renderMarkdown(document, markdown, preview.content, { currentPath: fileEntry.relativePath, currentFileId: fileEntry.id, fileEntries, onFileSelect, onResolveLink });
+        section.append(markdown);
+    } else {
+        section.append(sourcePreview(document, fileEntry, preview.content));
+    }
     if (migrationPlan) section.append(migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle));
     return section;
+}
+
+function fileInfo(document, fileEntry) {
+    const info = document.createElement("p");
+    info.className = "file-info";
+    info.textContent = `${fileKindLabel(fileEntry.kind)} · ${formatBytes(fileEntry.sizeBytes)}`;
+    return info;
+}
+
+function sourcePreview(document, fileEntry, content) {
+    const preview = document.createElement("pre");
+    preview.className = `text-preview source-preview source-${fileEntry.kind}`;
+    const code = document.createElement("code");
+    code.className = `language-${fileEntry.kind}`;
+    code.textContent = formatSourceContent(fileEntry.kind, content);
+    preview.append(code);
+    return preview;
+}
+
+function formatSourceContent(kind, content) {
+    if (kind !== "json") return content;
+    try {
+        return `${JSON.stringify(JSON.parse(content), null, 2)}\n`;
+    } catch {
+        return content;
+    }
+}
+
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes ?? 0} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function fileKindLabel(kind) {
+    return { binary: "binary", css: "CSS", html: "HTML", javascript: "JavaScript", json: "JSON", markdown: "Markdown", python: "Python", sensitive: "protected", shell: "Shell", text: "Text", toml: "TOML", yaml: "YAML" }[kind] ?? "File";
 }
 
 function migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle) {
@@ -237,29 +379,20 @@ function appendPlanEntries(document, section, heading, entries, formatter) {
     section.append(title, list);
 }
 
-function isDestinationName(destinationName) {
-    const reservedNames = new Set(["con", "prn", "aux", "nul", ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`), ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`)]);
-    return typeof destinationName === "string"
-        && Boolean(destinationName)
-        && destinationName === destinationName.trim()
-        && destinationName.length <= 128
-        && ![".", ".."].includes(destinationName)
-        && !destinationName.toLowerCase().startsWith(".skill-copy-")
-        && !reservedNames.has(destinationName.toLowerCase())
-        && !destinationName.endsWith(".")
-        && !/[\\/:<>"|?*\0\x00-\x1f]/.test(destinationName);
+function appendText(document, parent, text, className) {
+    const element = document.createElement("p");
+    element.className = className;
+    element.textContent = text;
+    parent.append(element);
 }
 
-function migrationCopyMessage(code) {
-    return {
-        stale_plan: "表示しているSkill bundleの内容が変わったため、コピーを実行しませんでした。移行計画を再取得してください。",
-        destination_conflict: "指定した宛先はすでに存在するため、コピーを実行しませんでした。別の宛先名を指定してください。",
-        read_failed: "Skill bundleを安全に再確認できなかったため、コピーを実行しませんでした。",
-        copy_failed: "Skill bundleをコピーできませんでした。元のbundleは変更していません。",
-    }[code] ?? "Skill bundleをコピーできませんでした。元のbundleは変更していません。";
-}
-
+function providerMessage(status, label) { return { not_found: `${label}の設定ディレクトリはありません。`, permission_denied: `${label}の設定ディレクトリへのアクセスが許可されませんでした。`, list_failed: `${label}の設定一覧を取得できませんでした。` }[status] ?? `${label}の設定一覧を取得できませんでした。`; }
 function isKiroSkill(fileEntry) {
-    return fileEntry?.providerId === "kiro" && fileEntry.categoryName === "Skills" && fileEntry.displayName === "SKILL.md";
+    if (!fileEntry?.readable || fileEntry?.providerId !== "kiro") return false;
+    const parts = fileEntry.relativePath.toLowerCase().split("/");
+    const rootIndex = parts[0] === "~" && parts[1] === ".kiro" ? 2 : 0;
+    return parts.length === rootIndex + 4 && parts[rootIndex] === ".kiro" && parts[rootIndex + 1] === "skills" && parts[rootIndex + 3] === "skill.md";
 }
-function previewMessage(code) { return { too_large: "ファイルが2MiBを超えるため、本文を表示しません。", permission_denied: "ファイルの読取が許可されませんでした。", unsupported_kind: "この形式の本文は表示できません。", read_failed: "ファイル本文を読み取れませんでした。" }[code] ?? "ファイル本文を読み取れませんでした。"; }
+function previewMessage(code) { return { binary: "バイナリファイルの本文は表示せず、ファイル情報だけを表示します。", sensitive: "機密性のある設定ファイルの本文は表示せず、ファイル情報だけを表示します。", too_large: "ファイルが2MiBを超えるため、本文を表示しません。", permission_denied: "ファイルの読取が許可されませんでした。", unsupported_kind: "この形式の本文は表示できません。", read_failed: "ファイル本文を読み取れませんでした。" }[code] ?? "ファイル本文を読み取れませんでした。"; }
+function isDestinationName(destinationName) { const reservedNames = new Set(["con", "prn", "aux", "nul", ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`), ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`)]); return typeof destinationName === "string" && Boolean(destinationName) && destinationName === destinationName.trim() && destinationName.length <= 128 && ![".", ".."].includes(destinationName) && !destinationName.toLowerCase().startsWith(".skill-copy-") && !reservedNames.has(destinationName.toLowerCase()) && !destinationName.endsWith(".") && !/[\\/:<>"|?*\0\x00-\x1f]/.test(destinationName); }
+function migrationCopyMessage(code) { return { stale_plan: "表示しているSkill bundleの内容が変わったため、コピーを実行しませんでした。移行計画を再取得してください。", destination_conflict: "指定した宛先はすでに存在するため、コピーを実行しませんでした。別の宛先名を指定してください。", read_failed: "Skill bundleを安全に再確認できなかったため、コピーを実行しませんでした。", copy_failed: "Skill bundleをコピーできませんでした。元のbundleは変更していません。" }[code] ?? "Skill bundleをコピーできませんでした。元のbundleは変更していません。"; }

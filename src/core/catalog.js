@@ -19,12 +19,24 @@ export class Catalog {
             preview: null,
             migrationPlan: null,
             noticeCode: null,
+            directoryLoadingKey: null,
+            directoryErrorKey: null,
         };
     }
 
     async readText(fileEntry) {
         if (!fileEntry.readable) throw { code: fileEntry.unreadableReason ?? "read_failed" };
         return this.source.readText(fileEntry.id);
+    }
+
+    async listDirectory(directoryId) {
+        if (typeof directoryId !== "string" || !directoryId) throw { code: "read_failed" };
+        return this.source.listDirectory(directoryId);
+    }
+
+    async resolveFileLink(fileId, target) {
+        if (typeof fileId !== "string" || typeof target !== "string" || !target) throw { code: "read_failed" };
+        return this.source.resolveFileLink(fileId, target);
     }
 
     async planSkillMigration(fileEntry) {
@@ -44,7 +56,10 @@ export class Catalog {
 }
 
 function isKiroSkill(fileEntry) {
-    return fileEntry?.readable && fileEntry.providerId === "kiro" && fileEntry.categoryName === "Skills" && fileEntry.displayName === "SKILL.md";
+    if (!fileEntry?.readable || fileEntry.providerId !== "kiro" || fileEntry.categoryName !== "Skills") return false;
+    const parts = fileEntry.relativePath.toLowerCase().split("/");
+    const rootIndex = parts[0] === "~" && parts[1] === ".kiro" ? 2 : 0;
+    return parts.length === rootIndex + 4 && parts[rootIndex] === ".kiro" && parts[rootIndex + 1] === "skills" && parts[rootIndex + 3] === "skill.md";
 }
 
-function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], errorKind: "not_found" }; }
+function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], tree: null, errorKind: "not_found" }; }
