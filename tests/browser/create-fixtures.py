@@ -41,6 +41,8 @@ def main() -> None:
 [Unsafe](javascript:alert(1))
 """)
     write(project_root, ".kiro/steering/notes.txt", "plain text in the project Kiro tree\n")
+    write(project_root, ".kiro/settings.json", '{"name":"viewer","enabled":true}')
+    write(project_root, ".kiro/scripts/check.py", "print('project check')\n")
     write(project_root, ".kiro/steering/safe.md.bak", "backup must not appear\n")
     write_bytes(project_root, ".kiro/steering/icon.bin", b"\x00\x01binary")
     write(project_root, ".kiro/skills/project/SKILL.md", "# Project skill\n")
