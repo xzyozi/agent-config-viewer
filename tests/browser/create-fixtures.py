@@ -62,7 +62,7 @@ def main() -> None:
     write(user_root, ".kiro/skills/existing/SKILL.md", "# Existing skill\n")
     write(user_root, ".kiro/logs/runtime.log", "runtime data is not a viewer target\n")
     write(user_root, ".kiro/db_config.ini", "password=not-for-display\n")
-    write(user_root, ".claude/CLAUDE.md", "# User Claude instruction\n")
+    write(user_root, "CLAUDE.md", "# User Claude instruction\n")
     write(user_root, ".claude/commands/user.md", "# User Claude command\n")
     write(user_root, ".claude/rules/example.md", "# User Claude rule\n")
     write(user_root, "GEMINI.md", "# User Gemini instruction\n")
