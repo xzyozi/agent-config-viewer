@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           empty_root="$RUNNER_TEMP/agent-config-viewer-empty-root"
           mkdir -p "$empty_root"
-          AGENT_CONFIG_VIEWER_PROJECT_ROOT="$empty_root" python cli.py list --json > "$RUNNER_TEMP/catalog.json"
+          AGENT_CONFIG_VIEWER_PROJECT_ROOT="$empty_root" AGENT_CONFIG_VIEWER_HOME_ROOT="$empty_root" python cli.py list --json > "$RUNNER_TEMP/catalog.json"
           python - "$RUNNER_TEMP/catalog.json" <<'PY'
           import json
           import sys
@@ -59,7 +59,7 @@ jobs:
           with open(sys.argv[1], encoding="utf-8") as catalog_file:
               results = json.load(catalog_file)["providerResults"]
 
-          assert [result["providerId"] for result in results] == ["kiro"]
+          assert [result["providerId"] for result in results] == ["kiro", "claude", "gemini", "codex"]
           assert all(result["status"] == "not_found" for result in results)
           assert all(not result["fileEntries"] for result in results)
           PY
@@ -96,19 +96,20 @@ jobs:
           npm install --ignore-scripts
           npx playwright install --with-deps chromium
 
-      - name: Create isolated Kiro fixtures
+      - name: Create isolated configuration fixtures
         shell: bash
         run: |
           set -euo pipefail
-          e2e_root="$RUNNER_TEMP/agent-config-viewer-e2e-home"
-          python tests/browser/create-fixtures.py "$e2e_root"
-          echo "E2E_HOME=$e2e_root" >> "$GITHUB_ENV"
+          fixture_root="$RUNNER_TEMP/agent-config-viewer-e2e-root"
+          python tests/browser/create-fixtures.py "$fixture_root"
+          echo "E2E_PROJECT_ROOT=$fixture_root/project" >> "$GITHUB_ENV"
+          echo "E2E_HOME_ROOT=$fixture_root/user" >> "$GITHUB_ENV"
 
       - name: Start local viewer
         shell: bash
         run: |
           set -euo pipefail
-          AGENT_CONFIG_VIEWER_PROJECT_ROOT="$E2E_HOME" python server.py > "$RUNNER_TEMP/local-viewer-server.log" 2>&1 &
+          AGENT_CONFIG_VIEWER_PROJECT_ROOT="$E2E_PROJECT_ROOT" AGENT_CONFIG_VIEWER_HOME_ROOT="$E2E_HOME_ROOT" python server.py > "$RUNNER_TEMP/local-viewer-server.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/local-viewer-server.pid"
           for attempt in {1..30}; do
             if python -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:8765/api/catalog', timeout=1).read()" >/dev/null 2>&1; then
@@ -121,7 +122,7 @@ jobs:
 
       - name: Run browser E2E tests
         shell: bash
-        run: LOCAL_VIEWER_URL="http://127.0.0.1:8765" E2E_HOME="$E2E_HOME" npm run test:browser
+        run: LOCAL_VIEWER_URL="http://127.0.0.1:8765" E2E_PROJECT_ROOT="$E2E_PROJECT_ROOT" E2E_HOME_ROOT="$E2E_HOME_ROOT" npm run test:browser
 
       - name: Stop local viewer
         if: always()

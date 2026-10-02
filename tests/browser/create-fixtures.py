@@ -19,8 +19,11 @@ def write_bytes(root: Path, relative_path: str, content: bytes) -> None:
 
 
 def main() -> None:
-    root = Path(sys.argv[1])
-    write(root, ".kiro/steering/safe.md", """# Kiro safe
+    fixture_root = Path(sys.argv[1])
+    project_root = fixture_root / "project"
+    user_root = fixture_root / "user"
+
+    write(project_root, ".kiro/steering/safe.md", """# Project Kiro safe
 
 <script id="unsafe">window.e2eExecuted = true</script>
 
@@ -31,16 +34,26 @@ def main() -> None:
 
 | Name | Value |
 | --- | --- |
-| Scope | Kiro |
+| Scope | Project Kiro |
 
-[Guide](../skills/example/SKILL.md)
+[Project skill](../skills/project/SKILL.md)
 [External](https://example.invalid)
 [Unsafe](javascript:alert(1))
 """)
-    write(root, ".kiro/steering/notes.txt", "plain text in the Kiro tree\n")
-    write(root, ".kiro/steering/safe.md.bak", "backup must not appear\n")
-    write_bytes(root, ".kiro/steering/icon.bin", b"\x00\x01binary")
-    write(root, ".kiro/skills/example/SKILL.md", """# Example skill
+    write(project_root, ".kiro/steering/notes.txt", "plain text in the project Kiro tree\n")
+    write(project_root, ".kiro/steering/safe.md.bak", "backup must not appear\n")
+    write_bytes(project_root, ".kiro/steering/icon.bin", b"\x00\x01binary")
+    write(project_root, ".kiro/skills/project/SKILL.md", "# Project skill\n")
+    oversized = project_root / ".kiro/steering/oversized.md"
+    oversized.parent.mkdir(parents=True, exist_ok=True)
+    oversized.write_bytes(b"x" * (MAX_READABLE_BYTES + 1))
+    write(project_root, ".claude/rules/example.md", "# Project Claude rule\n")
+    write(project_root, ".gemini/commands/example.toml", 'name = "project-example"\n')
+    write(project_root, ".codex/config.toml", 'model = "project-test"\n')
+
+    write(user_root, ".kiro/steering/global.md", "# User Kiro steering\n")
+    write(user_root, ".kiro/knowledge/guide.md", "# User Kiro knowledge\n")
+    write(user_root, ".kiro/skills/example/SKILL.md", """# Example skill
 [Guide](references/guide.md)
 #[[file:scripts/check.py]]
 `assets/icon.txt`
@@ -48,13 +61,17 @@ def main() -> None:
 [Missing](references/missing.md)
 [Outside](../other.md)
 """)
-    write(root, ".kiro/skills/example/references/guide.md", "# Guide\n")
-    write(root, ".kiro/skills/example/scripts/check.py", "print('check')\n")
-    write(root, ".kiro/skills/example/assets/icon.txt", "icon\n")
-    write(root, ".kiro/skills/existing/SKILL.md", "# Existing skill\n")
-    oversized = root / ".kiro/steering/oversized.md"
-    oversized.parent.mkdir(parents=True, exist_ok=True)
-    oversized.write_bytes(b"x" * (MAX_READABLE_BYTES + 1))
+    write(user_root, ".kiro/skills/example/references/guide.md", "# Guide\n")
+    write(user_root, ".kiro/skills/example/scripts/check.py", "print('check')\n")
+    write(user_root, ".kiro/skills/example/assets/icon.txt", "icon\n")
+    write(user_root, ".kiro/skills/existing/SKILL.md", "# Existing skill\n")
+    write(user_root, ".kiro/logs/runtime.log", "runtime data is not a viewer target\n")
+    write(user_root, ".kiro/db_config.ini", "password=not-for-display\n")
+    write(user_root, ".claude/CLAUDE.md", "# User Claude instruction\n")
+    write(user_root, ".claude/commands/user.md", "# User Claude command\n")
+    write(user_root, "GEMINI.md", "# User Gemini instruction\n")
+    write(user_root, ".gemini/skills/user/SKILL.md", "# User Gemini skill\n")
+    write(user_root, ".codex/config.toml", 'model = "user-test"\n')
 
 
 if __name__ == "__main__":
