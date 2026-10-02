@@ -150,6 +150,7 @@ h1 {
 .browse-layout {
   display: grid;
   grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 1rem;
   min-height: 610px;
 }
 
