@@ -46,7 +46,8 @@ export class Catalog {
 function isKiroSkill(fileEntry) {
     if (!fileEntry?.readable || fileEntry.providerId !== "kiro" || fileEntry.categoryName !== "Skills") return false;
     const parts = fileEntry.relativePath.toLowerCase().split("/");
-    return parts.length === 4 && parts[0] === ".kiro" && parts[1] === "skills" && parts[3] === "skill.md";
+    const rootIndex = parts[0] === "~" && parts[1] === ".kiro" ? 2 : 0;
+    return parts.length === rootIndex + 4 && parts[rootIndex] === ".kiro" && parts[rootIndex + 1] === "skills" && parts[rootIndex + 3] === "skill.md";
 }
 
 function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], tree: null, errorKind: "not_found" }; }

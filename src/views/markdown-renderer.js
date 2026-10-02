@@ -185,18 +185,24 @@ function resolveInternalFile(target, currentPath, fileEntries) {
     if (!target || target.startsWith("/") || target.includes("\\") || /[\0]/.test(target)) return null;
     const pathPart = target.split(/[?#]/, 1)[0];
     if (!pathPart) return null;
-    const targetParts = pathPart.startsWith(".kiro/") ? pathPart.split("/") : [...currentPath.split("/").slice(0, -1), ...pathPart.split("/")];
+    const currentParts = currentPath.split("/");
+    const rootParts = currentParts[0] === "~" && currentParts.length >= 2 ? currentParts.slice(0, 2) : currentParts.slice(0, 1);
+    if (!rootParts.length || !rootParts[0]) return null;
+    const rootPrefix = rootParts.join("/");
+    const targetParts = pathPart === rootPrefix || pathPart.startsWith(`${rootPrefix}/`)
+        ? pathPart.split("/")
+        : [...currentParts.slice(0, -1), ...pathPart.split("/")];
     const normalized = [];
     for (const part of targetParts) {
         if (!part || part === ".") continue;
         if (part === "..") {
-            if (normalized.length <= 1) return null;
+            if (normalized.length <= rootParts.length) return null;
             normalized.pop();
             continue;
         }
         normalized.push(part);
     }
-    if (normalized[0] !== ".kiro") return null;
+    if (normalized.slice(0, rootParts.length).join("/") !== rootPrefix) return null;
     const relativePath = normalized.join("/");
     return fileEntries.find((entry) => entry.relativePath === relativePath)
         ?? fileEntries.find((entry) => entry.relativePath.toLowerCase() === relativePath.toLowerCase())

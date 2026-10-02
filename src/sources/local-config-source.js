@@ -23,7 +23,7 @@ export class LocalConfigSource {
         const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/content`, { headers: { Accept: "application/json" } });
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload || typeof payload.content !== "string" || payload.fileId !== fileId) {
-            throw new FileReadError(["too_large", "binary"].includes(payload?.code) ? payload.code : "read_failed");
+            throw new FileReadError(["too_large", "binary", "sensitive"].includes(payload?.code) ? payload.code : "read_failed");
         }
         return payload.content;
     }

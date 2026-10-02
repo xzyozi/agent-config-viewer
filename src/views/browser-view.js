@@ -13,12 +13,12 @@ export class BrowserView {
     }
 
     renderScanning() {
-        this.setStatus("プロジェクトの .kiro 構成を確認しています…", "progress");
+        this.setStatus("対応するProviderの設定構成を確認しています…", "progress");
         this.catalog.replaceChildren();
     }
 
     renderError() {
-        this.setStatus(".kiro 構成を取得できませんでした。server.py で起動していることを確認してください。", "error");
+        this.setStatus("設定構成を取得できませんでした。server.py で起動していることを確認してください。", "error");
         this.renderMessage("設定内容や詳細な例外情報は表示しません。", "notice");
     }
 
@@ -29,7 +29,7 @@ export class BrowserView {
             this.renderMessage("表示対象のKiro構成がありません。", "empty");
             return;
         }
-        this.setStatus("プロジェクトの .kiro 構成を表示しています。");
+        this.setStatus("対応するProviderの設定構成を表示しています。");
         const tabs = this.document.createElement("div");
         tabs.className = "provider-tabs";
         tabs.setAttribute("role", "tablist");
@@ -75,7 +75,7 @@ export class BrowserView {
         const title = this.document.createElement("div");
         const eyebrow = this.document.createElement("p");
         eyebrow.className = "provider-eyebrow";
-        eyebrow.textContent = "Kiro configuration";
+        eyebrow.textContent = `${result.label} configuration`;
         const headingTitle = this.document.createElement("h2");
         headingTitle.textContent = result.label;
         title.append(eyebrow, headingTitle);
@@ -89,7 +89,7 @@ export class BrowserView {
         panel.append(heading);
         if (result.providerId === "kiro" && copyResult?.status === "copied") panel.append(copyResultSection(this.document, copyResult));
         if (result.status !== "ok") {
-            appendText(this.document, panel, providerMessage(result.status), "empty");
+            appendText(this.document, panel, providerMessage(result.status, result.label), "empty");
             return;
         }
         const layout = this.document.createElement("div");
@@ -112,7 +112,7 @@ export class BrowserView {
 function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect) {
     const section = document.createElement("aside");
     section.className = "kiro-explorer";
-    section.setAttribute("aria-label", "Kiro構成エクスプローラー");
+    section.setAttribute("aria-label", "設定構成エクスプローラー");
     const header = document.createElement("div");
     header.className = "explorer-header";
     const title = document.createElement("h3");
@@ -253,7 +253,7 @@ function formatBytes(bytes) {
 }
 
 function fileKindLabel(kind) {
-    return { binary: "binary", css: "CSS", html: "HTML", javascript: "JavaScript", json: "JSON", markdown: "Markdown", python: "Python", shell: "Shell", text: "Text", toml: "TOML", yaml: "YAML" }[kind] ?? "File";
+    return { binary: "binary", css: "CSS", html: "HTML", javascript: "JavaScript", json: "JSON", markdown: "Markdown", python: "Python", sensitive: "protected", shell: "Shell", text: "Text", toml: "TOML", yaml: "YAML" }[kind] ?? "File";
 }
 
 function migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle) {
@@ -352,8 +352,13 @@ function appendText(document, parent, text, className) {
     parent.append(element);
 }
 
-function providerMessage(status) { return { not_found: "プロジェクトに .kiro ディレクトリがありません。", permission_denied: ".kiro へのアクセスが許可されませんでした。", list_failed: ".kiro の一覧を取得できませんでした。" }[status] ?? ".kiro の一覧を取得できませんでした。"; }
-function isKiroSkill(fileEntry) { return fileEntry?.readable && fileEntry?.providerId === "kiro" && /^\.kiro\/skills\/[^/]+\/SKILL\.md$/i.test(fileEntry.relativePath); }
-function previewMessage(code) { return { binary: "バイナリファイルの本文は表示せず、ファイル情報だけを表示します。", too_large: "ファイルが2MiBを超えるため、本文を表示しません。", permission_denied: "ファイルの読取が許可されませんでした。", unsupported_kind: "この形式の本文は表示できません。", read_failed: "ファイル本文を読み取れませんでした。" }[code] ?? "ファイル本文を読み取れませんでした。"; }
+function providerMessage(status, label) { return { not_found: `${label}の設定ディレクトリはありません。`, permission_denied: `${label}の設定ディレクトリへのアクセスが許可されませんでした。`, list_failed: `${label}の設定一覧を取得できませんでした。` }[status] ?? `${label}の設定一覧を取得できませんでした。`; }
+function isKiroSkill(fileEntry) {
+    if (!fileEntry?.readable || fileEntry?.providerId !== "kiro") return false;
+    const parts = fileEntry.relativePath.toLowerCase().split("/");
+    const rootIndex = parts[0] === "~" && parts[1] === ".kiro" ? 2 : 0;
+    return parts.length === rootIndex + 4 && parts[rootIndex] === ".kiro" && parts[rootIndex + 1] === "skills" && parts[rootIndex + 3] === "skill.md";
+}
+function previewMessage(code) { return { binary: "バイナリファイルの本文は表示せず、ファイル情報だけを表示します。", sensitive: "機密性のある設定ファイルの本文は表示せず、ファイル情報だけを表示します。", too_large: "ファイルが2MiBを超えるため、本文を表示しません。", permission_denied: "ファイルの読取が許可されませんでした。", unsupported_kind: "この形式の本文は表示できません。", read_failed: "ファイル本文を読み取れませんでした。" }[code] ?? "ファイル本文を読み取れませんでした。"; }
 function isDestinationName(destinationName) { const reservedNames = new Set(["con", "prn", "aux", "nul", ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`), ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`)]); return typeof destinationName === "string" && Boolean(destinationName) && destinationName === destinationName.trim() && destinationName.length <= 128 && ![".", ".."].includes(destinationName) && !destinationName.toLowerCase().startsWith(".skill-copy-") && !reservedNames.has(destinationName.toLowerCase()) && !destinationName.endsWith(".") && !/[\\/:<>"|?*\0\x00-\x1f]/.test(destinationName); }
 function migrationCopyMessage(code) { return { stale_plan: "表示しているSkill bundleの内容が変わったため、コピーを実行しませんでした。移行計画を再取得してください。", destination_conflict: "指定した宛先はすでに存在するため、コピーを実行しませんでした。別の宛先名を指定してください。", read_failed: "Skill bundleを安全に再確認できなかったため、コピーを実行しませんでした。", copy_failed: "Skill bundleをコピーできませんでした。元のbundleは変更していません。" }[code] ?? "Skill bundleをコピーできませんでした。元のbundleは変更していません。"; }
