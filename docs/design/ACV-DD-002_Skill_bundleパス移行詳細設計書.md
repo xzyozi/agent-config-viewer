@@ -1,10 +1,10 @@
 ---
 title: "Skill bundleパス移行詳細設計書"
 document_type: "detailed_design"
-version: "1.1"
+version: "1.2"
 status: "partially_implemented"
 created_at: "2026-09-11"
-updated_at: "2026-09-15"
+updated_at: "2026-10-09"
 author: "xzyozi"
 purpose: "Skillの内部構造と参照を保全し、同一Provider内で安全にパス変更するための計画・コピー・移動の制御仕様を定義する。"
 related_documents:
@@ -16,8 +16,8 @@ related_documents:
 | 項目     | 内容                               |
 | :------- | :--------------------------------- |
 | 文書番号 | ACV-DD-002                         |
-| 版数     | Rev.1.1                            |
-| 状態     | Phase 3実装済み／Phase 4以降は提案 |
+| 版数     | Rev.1.2                            |
+| 状態     | Phase 3実装済み／Phase 4は設計提案 |
 
 ## 1. 結論と対象
 パス変更は必須要件とする。ただし、`SKILL.md`を単独でコピー・移動してはならない。`.kiro/skills/<skill-name>/SKILL.md`を根に持つディレクトリ全体を**Skill bundle**として扱い、参照を解析してから計画・コピー・移動する。
@@ -91,6 +91,51 @@ Interfaceは「カタログが発行したSkillのFile IDを受け、移行計�
 
 移動は、この成功済みコピーを前提とし、参照更新、確定後の再検証、復旧ジャーナル、実行直前の明示確認を別Phaseで満たした場合にだけ導入する。
 
+## 6.1 Phase 4 移動契約（提案・未実装）
+### 方式の選択
+同一`skills` root内の移動は、コピー後に元を削除する方式ではなく、**bundleディレクトリの非上書きrename**で実現する。
+
+| 案                | 内容                                     | 判定                                                                                                                                       |
+| :---------------- | :--------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------- |
+| A. コピー＋元削除 | Phase 3のコピー後にsourceを再帰削除      | 不採用。削除途中の失敗で元・先とも不完全になりうる。復旧ジャーナルが必須で、実装と検証の負荷が大きい                                       |
+| B. 非上書きrename | `skills/<元>`を`skills/<先>`へrenameする | **採用**。同一親ディレクトリ内の単一操作で、完了前後のどちらかの状態にしかならない。bundleの内容を複製・削除しないためデータ消失経路がない |
+
+Bのため、Phase 3の`publish_staged_bundle`（Linuxは`renameat2(RENAME_NOREPLACE)`、Windowsは既存宛先で失敗するrename）を再利用する。非対応環境では確定せず中止する。
+
+### 参照の扱い
+- bundle内部の相対参照は階層が変わらないため**書き換えない**（Phase 3と同じ）。
+- 他のbundleやsteeringなど**bundle外から移動対象を指す参照**は、本文の編集が非対象（設定本文の任意編集禁止）のため**自動更新しない**。計画に「移動で壊れる可能性がある外部参照」として件数と参照元の相対パスだけを警告表示する。
+
+### 契約
+`POST /api/files/<file-id>/migration-move`。クエリ、任意パス、追加フィールド、重複キーは拒否する。
+
+```json
+{
+  "snapshotDigest": "sha256-hex",
+  "destinationName": "example-renamed",
+  "confirmedSourceName": "example"
+}
+```
+
+- 実行直前の明示確認として、UIは「`example` → `example-renamed`」と外部参照の警告件数を表示し、利用者に**元のbundle名を入力**させる。`confirmedSourceName`が実際のbundle名と一致しない場合は拒否する（checkboxだけの確認にしない）。
+- 対象検証、宛先名検証、digest照合、リンク／再解析ポイント拒否、サイズ上限はPhase 3と同一とする。
+- rename直後に宛先のsnapshotがdigestと一致し、元のパスが存在しないことを検証する。不一致の場合は、元の名前へ非上書きrenameで戻す。戻せない場合も本文・絶対パスを返さず`move_failed`を返す。
+- 成功時は`{"bundlePath":".kiro/skills/example-renamed","snapshotDigest":"…","status":"moved"}`だけを返す。固定エラーは`read_failed`、`stale_plan`、`destination_conflict`、`move_failed`とする。
+- 移動後は`FILE_INDEX`が失効するため、UIは再スキャンして新しいFile IDを取得する。
+
+### 復旧ジャーナルを設けない理由
+renameは単一の原子的操作であり、削除工程がないため、途中状態から復旧すべきデータが発生しない。ジャーナルが必要になるのは、bundle外ファイルの参照更新や、別skills root／Provider間の移動など、複数ファイルを順に変更する機能を導入するPhaseである。
+
+### 非対象（Phase 4でも提供しない）
+Provider横断、別ディレクトリへの移動、既存宛先の上書き、bundle外参照の自動更新、元bundleの再帰削除。
+
+### テスト方針
+- 正常rename（内容・空ディレクトリ・digest不変、元パスの消滅）。
+- 競合拒否、陳腐化拒否、`confirmedSourceName`不一致拒否、リンク差し替え拒否。
+- rename後の検証失敗時のロールバック（検証関数の差し替えで再現）。
+- 外部参照警告の件数（他bundle・steeringからの参照を含むfixture）。
+- ブラウザE2E（確認入力→移動→再スキャン→新パスの表示）はCIで確認する。
+
 ## 7. 処理フロー
 ```mermaid
 sequenceDiagram
@@ -122,7 +167,8 @@ sequenceDiagram
 - 本更新時点でPython構文検査、変更ファイルの診断、`git diff --check`は実施済みである。コピーのブラウザE2EはローカルNode.js未導入のため未実行であり、受入確認として残す。
 
 ## 9. 改訂履歴
-| 版数    | 改訂日     | 変更者 | 変更内容                                                                |
-| :------ | :--------- | :----- | :---------------------------------------------------------------------- |
-| Rev.1.0 | 2026-09-11 | xzyozi | Skill bundleを単位とする必須パス移行の詳細設計を新規作成。              |
-| Rev.1.1 | 2026-09-15 | xzyozi | Phase 3の同一Provider内・非上書きコピーの実装、制約、未検証事項を反映。 |
+| 版数    | 改訂日     | 変更者 | 変更内容                                                                        |
+| :------ | :--------- | :----- | :------------------------------------------------------------------------------ |
+| Rev.1.0 | 2026-09-11 | xzyozi | Skill bundleを単位とする必須パス移行の詳細設計を新規作成。                      |
+| Rev.1.1 | 2026-09-15 | xzyozi | Phase 3の同一Provider内・非上書きコピーの実装、制約、未検証事項を反映。         |
+| Rev.1.2 | 2026-10-09 | xzyozi | Phase 4の移動を非上書きrename方式とする設計案、確認方式、外部参照の扱いを追記。 |
