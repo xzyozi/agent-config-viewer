@@ -11,6 +11,10 @@ from pathlib import Path, PurePosixPath
 
 MAX_BUNDLE_FILES = 256
 MAX_BUNDLE_BYTES = 8 * 1024 * 1024
+MAX_EXTERNAL_REFERENCES = 50
+MAX_EXTERNAL_SCAN_FILES = 2000
+MAX_EXTERNAL_SCAN_BYTES = 1024 * 1024
+EXTERNAL_SCAN_EXCLUDED_DIRECTORIES = frozenset({".git", ".svn", "__pycache__", "node_modules"})
 TEXT_SUFFIXES = {".cjs", ".js", ".md", ".mjs", ".py", ".sh", ".txt"}
 MARKDOWN_LINK = re.compile(r"!?\[[^\]\r\n]*\]\(([^\s)]+)(?:\s+[^)]*)?\)")
 KIRO_FILE_REFERENCE = re.compile(r"#\[\[file:([^\]\r\n]+)\]\]")
@@ -58,6 +62,7 @@ def plan_skill_migration(file_id: str, file_path: Path, allowed_root: Path, home
         "summary": summary,
         "references": references,
         "warnings": warnings,
+        "externalReferences": find_external_references(bundle_root, allowed_root),
     }
 
 
@@ -135,7 +140,106 @@ def copy_skill_bundle(
     }
 
 
-def validate_destination_name(destination_name: str) -> None:
+def move_skill_bundle(
+    file_path: Path,
+    allowed_root: Path,
+    home_root: Path,
+    snapshot_digest: str,
+    destination_name: str,
+    confirmed_source_name: str,
+) -> dict[str, str]:
+    """Rename a verified Kiro Skill bundle inside the same skills root without replacing anything.
+
+    The move is a single non-replacing directory rename, so no deletion step exists. The
+    renamed bundle is re-verified against the planned digest and renamed back on mismatch.
+    """
+    validate_destination_name(destination_name, "move_failed")
+    bundle_root, skills_root = validate_skill_root(file_path, allowed_root, home_root)
+    if confirmed_source_name != bundle_root.name:
+        raise SkillMigrationError("move_failed")
+    directories, raw_files, source_digest = read_bundle_snapshot(bundle_root)
+    if source_digest != snapshot_digest:
+        raise SkillMigrationError("stale_plan")
+
+    destination = skills_root / destination_name
+    try:
+        ensure_destination_available(destination, skills_root)
+    except SkillMigrationError as error:
+        raise SkillMigrationError("move_failed" if error.code == "copy_failed" else error.code) from None
+    publish_staged_bundle(bundle_root, destination, "move_failed")
+
+    try:
+        moved_directories, moved_files, moved_digest = read_bundle_snapshot(destination)
+        verified = moved_directories == directories and moved_files == raw_files and moved_digest == snapshot_digest
+        verified = verified and not path_exists(bundle_root)
+    except SkillMigrationError:
+        verified = False
+    if not verified:
+        try:
+            publish_staged_bundle(destination, bundle_root, "move_failed")
+        except SkillMigrationError:
+            pass
+        raise SkillMigrationError("move_failed")
+    return {
+        "bundlePath": f"{allowed_root.name}/skills/{destination_name}",
+        "snapshotDigest": snapshot_digest,
+        "status": "moved",
+    }
+
+
+def path_exists(path: Path) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def find_external_references(bundle_root: Path, kiro_root: Path) -> list[dict[str, object]]:
+    """Report text files outside the bundle that still mention `skills/<bundle>`; never edits anything."""
+    pattern = re.compile(rf"(?<![A-Za-z0-9_.\-]){re.escape(bundle_root.parent.name)}/{re.escape(bundle_root.name)}(?![A-Za-z0-9_.\-])")
+    found: list[dict[str, object]] = []
+    visited = [0]
+
+    def walk(directory: Path) -> None:
+        if len(found) >= MAX_EXTERNAL_REFERENCES or visited[0] >= MAX_EXTERNAL_SCAN_FILES:
+            return
+        try:
+            with os.scandir(directory) as entries:
+                for entry in sorted(entries, key=lambda item: item.name.casefold()):
+                    entry_path = Path(entry.path)
+                    if entry_is_link(entry) or entry_path == bundle_root or entry.name in EXTERNAL_SCAN_EXCLUDED_DIRECTORIES:
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        walk(entry_path)
+                    elif entry.is_file(follow_symlinks=False) and is_text_candidate(entry.name):
+                        visited[0] += 1
+                        scan_file(entry_path)
+                    if len(found) >= MAX_EXTERNAL_REFERENCES or visited[0] >= MAX_EXTERNAL_SCAN_FILES:
+                        return
+        except OSError:
+            return
+
+    def scan_file(file_path: Path) -> None:
+        try:
+            if file_path.stat().st_size > MAX_EXTERNAL_SCAN_BYTES:
+                return
+            text = file_path.read_bytes().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if pattern.search(line):
+                found.append({"sourcePath": file_path.relative_to(kiro_root).as_posix(), "line": line_number})
+                if len(found) >= MAX_EXTERNAL_REFERENCES:
+                    return
+
+    walk(kiro_root)
+    return found
+
+
+def validate_destination_name(destination_name: str, failure_code: str = "copy_failed") -> None:
     reserved_names = {"con", "prn", "aux", "nul", *(f"com{number}" for number in range(1, 10)), *(f"lpt{number}" for number in range(1, 10))}
     if (
         not destination_name
@@ -148,7 +252,7 @@ def validate_destination_name(destination_name: str) -> None:
         or any(ord(character) < 32 or character in '/\\\0:<>"|?*' for character in destination_name)
         or Path(destination_name).is_absolute()
     ):
-        raise SkillMigrationError("copy_failed")
+        raise SkillMigrationError(failure_code)
 
 
 def read_bundle_snapshot(bundle_root: Path) -> tuple[tuple[str, ...], dict[str, bytes], str]:
@@ -188,28 +292,31 @@ def list_bundle_directories(bundle_root: Path) -> tuple[str, ...]:
     return tuple(directories)
 
 
-def publish_staged_bundle(stage: Path, destination: Path) -> None:
+def publish_staged_bundle(stage: Path, destination: Path, failure_code: str = "copy_failed") -> None:
+    """Rename `stage` to `destination` without ever replacing an existing destination."""
     if os.name == "nt":
         try:
             os.rename(stage, destination)
         except FileExistsError:
             raise SkillMigrationError("destination_conflict") from None
+        except OSError:
+            raise SkillMigrationError(failure_code) from None
         return
     if sys.platform != "linux":
-        raise SkillMigrationError("copy_failed")
+        raise SkillMigrationError(failure_code)
     try:
         libc = ctypes.CDLL(None, use_errno=True)
         renameat2 = libc.renameat2
         renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
         renameat2.restype = ctypes.c_int
     except (AttributeError, OSError):
-        raise SkillMigrationError("copy_failed") from None
+        raise SkillMigrationError(failure_code) from None
     if renameat2(-100, os.fsencode(stage), -100, os.fsencode(destination), 1) == 0:
         return
     error_number = ctypes.get_errno()
     if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
         raise SkillMigrationError("destination_conflict")
-    raise SkillMigrationError("copy_failed")
+    raise SkillMigrationError(failure_code)
 
 
 def ensure_destination_available(destination: Path, skills_root: Path) -> None:

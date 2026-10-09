@@ -115,6 +115,35 @@ test("shows and copies a user Skill bundle without changing its source", async (
     await expect(readSkillBundle("example-copy")).resolves.toEqual(sourceBefore);
 });
 
+test("moves a user Skill bundle by renaming it after typed confirmation", async ({ page }) => {
+    const before = await readFile(join(process.env.E2E_HOME_ROOT, ".kiro", "skills", "movable", "references", "note.md"));
+    await page.goto("/");
+    await openDirectory(page, "~/.kiro");
+    await openDirectory(page, "skills");
+    await openDirectory(page, "movable");
+    await fileButton(page, "~/.kiro/skills/movable/SKILL.md").click();
+    await page.getByRole("button", { name: "移行計画を表示" }).click();
+    await expect(page.getByText("bundle の外から 1 件の参照が見つかりました")).toBeVisible();
+    await expect(page.locator(".migration-move-warning")).toContainText("steering/uses-movable.md:1");
+
+    const moveButton = page.getByRole("button", { name: "名前を変更して移動" });
+    await page.locator("#migration-move-destination").fill("moved-skill");
+    await expect(moveButton).toBeDisabled();
+    await page.locator("#migration-move-confirm").fill("wrong");
+    await expect(moveButton).toBeDisabled();
+    await page.locator("#migration-move-confirm").fill("movable");
+    await expect(moveButton).toBeEnabled();
+    await moveButton.click();
+
+    await expect(page.getByText("Skill bundleを移動しました: .kiro/skills/moved-skill")).toBeVisible();
+    await openDirectory(page, "~/.kiro");
+    await openDirectory(page, "skills");
+    await expect(page.locator('.tree-directory[title="~/.kiro/skills/movable"]')).toHaveCount(0);
+    await openDirectory(page, "moved-skill");
+    await expect(fileButton(page, "~/.kiro/skills/moved-skill/SKILL.md")).toBeVisible();
+    await expect(readFile(join(process.env.E2E_HOME_ROOT, ".kiro", "skills", "moved-skill", "references", "note.md"))).resolves.toEqual(before);
+});
+
 function fileButton(page, path) {
     return page.locator(`.file-entry[title="${path}"]`);
 }

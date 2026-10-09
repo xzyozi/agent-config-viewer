@@ -70,6 +70,20 @@ export class LocalConfigSource {
         return payload;
     }
 
+    async moveSkillBundle(fileId, { snapshotDigest, destinationName, confirmedSourceName }) {
+        const response = await this.fetchFn(`/api/files/${encodeURIComponent(fileId)}/migration-move`, {
+            method: "POST",
+            headers: { Accept: "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({ snapshotDigest, destinationName, confirmedSourceName }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new FileReadError(moveErrorCode(payload?.code));
+        if (!payload || payload.status !== "moved" || typeof payload.bundlePath !== "string" || payload.snapshotDigest !== snapshotDigest) {
+            throw new FileReadError("move_failed");
+        }
+        return payload;
+    }
+
     refresh() {
         this.results = null;
     }
@@ -91,6 +105,10 @@ function isPlanSummary(summary) {
 
 function copyErrorCode(code) {
     return ["stale_plan", "destination_conflict", "copy_failed", "read_failed"].includes(code) ? code : "copy_failed";
+}
+
+function moveErrorCode(code) {
+    return ["stale_plan", "destination_conflict", "move_failed", "read_failed"].includes(code) ? code : "move_failed";
 }
 
 function missingResult(providerId) { return { providerId, status: "not_found", fileEntries: [], tree: null, errorKind: "not_found" }; }

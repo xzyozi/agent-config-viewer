@@ -49,6 +49,11 @@ export class Catalog {
         return this.source.copySkillBundle(fileEntry.id, { snapshotDigest, destinationName });
     }
 
+    async moveSkillBundle(fileEntry, snapshotDigest, destinationName, confirmedSourceName) {
+        if (!isKiroSkill(fileEntry)) throw { code: "read_failed" };
+        return this.source.moveSkillBundle(fileEntry.id, { snapshotDigest, destinationName, confirmedSourceName });
+    }
+
     async rescan() {
         this.source.refresh();
         return this.discover();

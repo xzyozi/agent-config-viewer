@@ -27,7 +27,8 @@ export class BrowserView {
         this.renderMessage("設定内容や詳細な例外情報は表示しません。", "notice");
     }
 
-    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink) {
+    renderBrowse(browseState, onProviderSelect, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, onMoveSkillBundle) {
+        const moveContext = { state: browseState.migrationMove, result: browseState.moveResult, onMove: onMoveSkillBundle };
         const results = browseState.providerResults;
         const selected = results.find((result) => result.providerId === browseState.selectedProviderId) ?? results[0];
         if (!selected) {
@@ -50,7 +51,7 @@ export class BrowserView {
         panel.setAttribute("role", "tabpanel");
         panel.setAttribute("tabindex", "0");
         panel.setAttribute("aria-labelledby", `tab-${selected.providerId}`);
-        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, browseState.directoryLoadingKey, browseState.directoryErrorKey);
+        this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, browseState.directoryLoadingKey, browseState.directoryErrorKey, moveContext);
         this.catalog.replaceChildren(tabs, panel);
         this.restoreUiState(uiState, browseState, selected.providerId);
     }
@@ -63,12 +64,13 @@ export class BrowserView {
         const view = this.document.defaultView;
         return {
             focusKey: active && this.catalog.contains(active) ? active.dataset.focusKey ?? null : null,
-            selection: destination && active === destination ? [destination.selectionStart, destination.selectionEnd] : null,
+            selection: active && this.catalog.contains(active) && active.selectionStart !== undefined && active.type === "text" ? [active.selectionStart, active.selectionEnd] : null,
             explorerScroll: this.catalog.querySelector(".kiro-explorer")?.scrollTop ?? 0,
             previewScroll: this.catalog.querySelector(".file-preview")?.scrollTop ?? 0,
             windowScroll: [view?.scrollX ?? 0, view?.scrollY ?? 0],
             destination: destination?.value ?? null,
             confirmed: confirmation?.checked ?? false,
+            fields: Object.fromEntries([...this.catalog.querySelectorAll("[data-preserve]")].map((field) => [field.id, field.value])),
         };
     }
 
@@ -90,19 +92,29 @@ export class BrowserView {
                 destination.dispatchEvent(new Event("input"));
             }
         }
+        if (sameFile) {
+            for (const [id, value] of Object.entries(uiState.fields)) {
+                const field = this.catalog.querySelector(`#${CSS.escape(id)}`);
+                if (field && !field.disabled && field.value !== value) {
+                    field.value = value;
+                    field.dispatchEvent(new Event("input"));
+                }
+            }
+        }
         const rovingKey = uiState.focusKey?.startsWith("dir:") || uiState.focusKey?.startsWith("file:") ? uiState.focusKey : null;
         applyRovingTabindex(this.catalog.querySelector(".kiro-tree"), rovingKey ?? (fileId ? `file:${fileId}` : null));
         this.restoreFocus(uiState, previousFileId);
         const view = this.document.defaultView;
         if (view && uiState.windowScroll[1] !== view.scrollY) view.scrollTo(uiState.windowScroll[0], uiState.windowScroll[1]);
+        const notice = browseState.copyResult ?? browseState.moveResult ?? null;
         const copyNotice = this.catalog.querySelector(".migration-copy-result");
-        if (copyNotice && browseState.copyResult !== this.lastCopyResult) copyNotice.focus();
+        if (copyNotice && notice !== this.lastCopyResult) copyNotice.focus();
         else if (fileId && fileId !== this.lastPreviewFileId && view?.matchMedia?.("(max-width: 800px)").matches) {
             preview?.scrollIntoView({ block: "start" });
         }
         this.lastProviderId = providerId;
         this.lastPreviewFileId = fileId;
-        this.lastCopyResult = browseState.copyResult ?? null;
+        this.lastCopyResult = notice;
     }
 
     restoreFocus(uiState, previousFileId) {
@@ -139,7 +151,7 @@ export class BrowserView {
         queueMicrotask(() => this.document.querySelector(`#tab-${results[next].providerId}`)?.focus());
     }
 
-    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, directoryLoadingKey, directoryErrorKey) {
+    renderProvider(panel, result, preview, migrationPlan, migrationCopy, copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, directoryLoadingKey, directoryErrorKey, moveContext) {
         const heading = this.document.createElement("div");
         heading.className = "provider-heading";
         const title = this.document.createElement("div");
@@ -159,6 +171,7 @@ export class BrowserView {
         heading.append(title, refreshButton);
         panel.append(heading);
         if (result.providerId === "kiro" && copyResult?.status === "copied") panel.append(copyResultSection(this.document, copyResult));
+        if (result.providerId === "kiro" && moveContext?.result?.status === "moved") panel.append(moveResultSection(this.document, moveContext.result));
         if (result.status !== "ok") {
             appendText(this.document, panel, providerMessage(result.status, result.label), "empty");
             return;
@@ -167,7 +180,7 @@ export class BrowserView {
         layout.className = "browse-layout";
         layout.append(
             treeSection(this.document, result.tree, result.fileEntries, preview?.fileId ?? null, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey),
-            previewSection(this.document, preview, result.fileEntries.find((entry) => entry.id === preview?.fileId) ?? null, result.fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink),
+            previewSection(this.document, preview, result.fileEntries.find((entry) => entry.id === preview?.fileId) ?? null, result.fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink, moveContext),
         );
         panel.append(layout);
     }
@@ -319,7 +332,7 @@ function handleTreeKey(event) {
     if (target) moveTreeFocus(tree, target);
 }
 
-function previewSection(document, preview, fileEntry, fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink) {
+function previewSection(document, preview, fileEntry, fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink, moveContext) {
     const section = document.createElement("section");
     section.className = "file-preview";
     const header = document.createElement("div");
@@ -380,7 +393,7 @@ function previewSection(document, preview, fileEntry, fileEntries, migrationPlan
     } else {
         section.append(sourcePreview(document, fileEntry, preview.content));
     }
-    if (migrationPlan) section.append(migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle));
+    if (migrationPlan) section.append(migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle, moveContext, fileEntry));
     return section;
 }
 
@@ -420,7 +433,7 @@ function fileKindLabel(kind) {
     return { binary: "バイナリ", css: "CSS", html: "HTML", javascript: "JavaScript", json: "JSON", markdown: "Markdown", python: "Python", sensitive: "保護", shell: "Shell", text: "Text", toml: "TOML", yaml: "YAML" }[kind] ?? "File";
 }
 
-function migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle) {
+function migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle, moveContext, fileEntry) {
     const section = document.createElement("section");
     section.className = "migration-plan";
     const title = document.createElement("h4");
@@ -440,7 +453,96 @@ function migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkil
     appendPlanEntries(document, section, "参照明細", plan.references, (reference) => `${reference.sourcePath}:${reference.line} [${reference.kind}] ${reference.target} — ${reference.status}${reference.reason ? ` (${reference.reason})` : ""}`);
     appendPlanEntries(document, section, "除外・警告", plan.warnings, (warning) => `${warning.path} — ${warning.reason}`);
     section.append(migrationCopyControls(document, migrationCopy, onCopySkillBundle));
+    section.append(migrationMoveControls(document, plan, fileEntry, moveContext));
     return section;
+}
+
+// 同一 skills root 内の非上書きrename。元のbundle名の入力を確認として要求する
+function migrationMoveControls(document, plan, fileEntry, moveContext) {
+    const moveState = moveContext?.state;
+    const sourceName = fileEntry?.relativePath.split("/").at(-2) ?? "";
+    const controls = document.createElement("div");
+    controls.className = "migration-move-controls";
+    const heading = document.createElement("h5");
+    heading.textContent = "名前を変更して移動";
+    const help = document.createElement("p");
+    help.className = "migration-copy-help";
+    help.textContent = "同じ .kiro/skills 直下で bundle の名前を変更します。コピーや削除は行わず、既存の bundle は上書きしません。bundle内の相対参照は変わりません。";
+    controls.append(heading, help);
+    const external = plan.externalReferences ?? [];
+    if (external.length) {
+        const warning = document.createElement("div");
+        warning.className = "notice migration-move-warning";
+        const summary = document.createElement("p");
+        summary.textContent = `bundle の外から ${external.length} 件の参照が見つかりました。移動すると参照が壊れる可能性があります（自動では更新しません）。`;
+        const list = document.createElement("ul");
+        list.className = "migration-plan-entries";
+        for (const reference of external) {
+            const item = document.createElement("li");
+            item.textContent = `${reference.sourcePath}:${reference.line}`;
+            list.append(item);
+        }
+        warning.append(summary, list);
+        controls.append(warning);
+    }
+    const destinationLabel = document.createElement("label");
+    destinationLabel.htmlFor = "migration-move-destination";
+    destinationLabel.textContent = "新しい名前";
+    const destination = document.createElement("input");
+    destination.className = "migration-copy-destination";
+    destination.id = "migration-move-destination";
+    destination.type = "text";
+    destination.maxLength = 128;
+    destination.autocomplete = "off";
+    destination.dataset.focusKey = "field:move-destination";
+    destination.dataset.preserve = "";
+    destination.value = moveState?.destinationName ?? "";
+    destination.disabled = moveState?.status === "moving";
+    const confirmLabel = document.createElement("label");
+    confirmLabel.htmlFor = "migration-move-confirm";
+    confirmLabel.textContent = `確認のため、移動元の名前「${sourceName}」を入力してください`;
+    const confirm = document.createElement("input");
+    confirm.className = "migration-copy-destination";
+    confirm.id = "migration-move-confirm";
+    confirm.type = "text";
+    confirm.maxLength = 128;
+    confirm.autocomplete = "off";
+    confirm.dataset.focusKey = "field:move-confirm";
+    confirm.dataset.preserve = "";
+    confirm.value = moveState?.confirmedSourceName ?? "";
+    confirm.disabled = moveState?.status === "moving";
+    const button = document.createElement("button");
+    button.className = "migration-copy-button migration-move-button";
+    button.type = "button";
+    button.dataset.focusKey = "action:move";
+    button.textContent = moveState?.status === "moving" ? "移動中…" : "名前を変更して移動";
+    const update = () => {
+        button.disabled = moveState?.status === "moving" || !sourceName || confirm.value !== sourceName || !isDestinationName(destination.value) || destination.value === sourceName;
+    };
+    destination.addEventListener("input", update);
+    confirm.addEventListener("input", update);
+    button.addEventListener("click", () => moveContext?.onMove?.(destination.value, confirm.value));
+    update();
+    controls.append(destinationLabel, destination, confirmLabel, confirm, button);
+    if (moveState?.status === "error") appendText(document, controls, migrationMoveMessage(moveState.code), "notice");
+    return controls;
+}
+
+function moveResultSection(document, moveResult) {
+    const result = document.createElement("p");
+    result.className = "migration-copy-result migration-move-result";
+    result.tabIndex = -1;
+    result.textContent = `Skill bundleを移動しました: ${moveResult.bundlePath}`;
+    return result;
+}
+
+function migrationMoveMessage(code) {
+    return {
+        stale_plan: "表示しているSkill bundleの内容が変わったため、移動を実行しませんでした。移行計画を再取得してください。",
+        destination_conflict: "指定した新しい名前はすでに存在するため、移動を実行しませんでした。別の名前を指定してください。",
+        read_failed: "Skill bundleを安全に再確認できなかったため、移動を実行しませんでした。",
+        move_failed: "Skill bundleを移動できませんでした。元のbundleは変更していません。",
+    }[code] ?? "Skill bundleを移動できませんでした。元のbundleは変更していません。";
 }
 
 function migrationCopyControls(document, migrationCopy, onCopySkillBundle) {

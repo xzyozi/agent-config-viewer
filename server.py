@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from backend.kiro_catalog import is_binary_content, list_directory as list_config_directory, path_is_link, resolve_file_link as resolve_config_file_link, scan_provider as scan_config_provider
-from backend.skill_migration import SkillMigrationError, copy_skill_bundle, plan_skill_migration
+from backend.skill_migration import SkillMigrationError, copy_skill_bundle, move_skill_bundle, plan_skill_migration
 
 APP_ROOT = Path(__file__).resolve().parent
 HOME_ROOT = Path(os.environ.get("AGENT_CONFIG_VIEWER_HOME_ROOT", Path.home())).resolve()
@@ -23,6 +23,7 @@ DIRECTORY_INDEX: dict[str, tuple[Path, Path, str, str, str]] = {}
 FILE_INDEX_LOCK = threading.RLock()
 FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,}")
 COPY_REQUEST_KEYS = frozenset({"snapshotDigest", "destinationName", "confirmed"})
+MOVE_REQUEST_KEYS = frozenset({"snapshotDigest", "destinationName", "confirmedSourceName"})
 PROVIDERS = (
     {
         "id": "kiro",
@@ -148,6 +149,7 @@ def error_status(error: SkillMigrationError) -> HTTPStatus:
         "stale_plan": HTTPStatus.CONFLICT,
         "destination_conflict": HTTPStatus.CONFLICT,
         "copy_failed": HTTPStatus.INTERNAL_SERVER_ERROR,
+        "move_failed": HTTPStatus.INTERNAL_SERVER_ERROR,
     }.get(error.code, HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
@@ -166,6 +168,9 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
             return
         if file_id_for_action(request.path, "migration-copy") is not None:
             self.send_json({"code": "copy_failed"}, HTTPStatus.METHOD_NOT_ALLOWED)
+            return
+        if file_id_for_action(request.path, "migration-move") is not None:
+            self.send_json({"code": "move_failed"}, HTTPStatus.METHOD_NOT_ALLOWED)
             return
         if request.path == "/api/catalog":
             self.send_json(catalog_payload())
@@ -191,6 +196,10 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         request = urlsplit(self.path)
         if request.query or request.fragment:
             self.send_json({"code": "copy_failed"}, HTTPStatus.BAD_REQUEST)
+            return
+        move_file_id = file_id_for_action(request.path, "migration-move")
+        if move_file_id is not None:
+            self.send_migration_move(move_file_id)
             return
         file_id = file_id_for_action(request.path, "migration-copy")
         if file_id is None:
@@ -267,7 +276,31 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         except SkillMigrationError as error:
             self.send_json({"code": error.code}, error_status(error))
 
-    def copy_request_payload(self) -> dict[str, str]:
+    def send_migration_move(self, file_id: str) -> None:
+        try:
+            request_payload = self.move_request_payload()
+            if not FILE_ID_PATTERN.fullmatch(file_id):
+                raise SkillMigrationError("read_failed")
+            with FILE_INDEX_LOCK:
+                record = FILE_INDEX.get(file_id)
+            if not record:
+                raise SkillMigrationError("read_failed")
+            file_path, allowed_root = record
+            result = move_skill_bundle(
+                file_path,
+                allowed_root,
+                allowed_root.parent,
+                request_payload["snapshotDigest"],
+                request_payload["destinationName"],
+                request_payload["confirmedSourceName"],
+            )
+            self.send_json(result)
+        except CopyRequestError:
+            self.send_json({"code": "move_failed"}, HTTPStatus.BAD_REQUEST)
+        except SkillMigrationError as error:
+            self.send_json({"code": error.code}, error_status(error))
+
+    def read_json_body(self) -> object:
         if self.headers.get("Content-Type") != "application/json":
             raise CopyRequestError()
         content_length = self.headers.get("Content-Length")
@@ -277,9 +310,18 @@ class LocalOnlyHandler(BaseHTTPRequestHandler):
         if length <= 0 or length > MAX_COPY_REQUEST_BYTES:
             raise CopyRequestError()
         try:
-            payload = json.loads(self.rfile.read(length).decode("utf-8"), object_pairs_hook=json_object_without_duplicates)
+            return json.loads(self.rfile.read(length).decode("utf-8"), object_pairs_hook=json_object_without_duplicates)
         except (UnicodeDecodeError, json.JSONDecodeError, CopyRequestError):
             raise CopyRequestError() from None
+
+    def move_request_payload(self) -> dict[str, str]:
+        payload = self.read_json_body()
+        if not isinstance(payload, dict) or set(payload) != MOVE_REQUEST_KEYS or not all(isinstance(payload[key], str) for key in MOVE_REQUEST_KEYS):
+            raise CopyRequestError()
+        return {key: payload[key] for key in MOVE_REQUEST_KEYS}
+
+    def copy_request_payload(self) -> dict[str, str]:
+        payload = self.read_json_body()
         if (
             not isinstance(payload, dict)
             or set(payload) != COPY_REQUEST_KEYS
