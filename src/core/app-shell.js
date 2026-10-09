@@ -25,7 +25,7 @@ export class AppShell {
 
     selectProvider(providerId) {
         if (!this.browseState?.providerResults.some((result) => result.providerId === providerId)) return;
-        this.browseState = { ...this.browseState, selectedProviderId: providerId, selectedFileId: null, preview: null, migrationPlan: null, migrationCopy: null, copyResult: null, directoryLoadingKey: null, directoryErrorKey: null };
+        this.browseState = { ...this.browseState, selectedProviderId: providerId, selectedFileId: null, preview: null, migrationPlan: null, migrationCopy: null, copyResult: null, migrationMove: null, moveResult: null, directoryLoadingKey: null, directoryErrorKey: null };
         this.renderBrowse();
     }
 
@@ -79,7 +79,7 @@ export class AppShell {
     async selectFile(fileId) {
         const fileEntry = this.findFile(fileId);
         if (!fileEntry) return;
-        this.browseState = { ...this.browseState, selectedFileId: fileId, preview: { status: "reading", fileId }, migrationPlan: null, migrationCopy: null, copyResult: null };
+        this.browseState = { ...this.browseState, selectedFileId: fileId, preview: { status: "reading", fileId }, migrationPlan: null, migrationCopy: null, copyResult: null, migrationMove: null, moveResult: null };
         this.renderBrowse();
         try {
             const content = await this.catalog.readText(fileEntry);
@@ -92,7 +92,7 @@ export class AppShell {
     async planSkillMigration() {
         const fileEntry = this.findFile(this.browseState?.selectedFileId);
         if (!fileEntry) return;
-        this.browseState = { ...this.browseState, migrationPlan: { status: "planning", fileId: fileEntry.id }, migrationCopy: null, copyResult: null };
+        this.browseState = { ...this.browseState, migrationPlan: { status: "planning", fileId: fileEntry.id }, migrationCopy: null, copyResult: null, migrationMove: null, moveResult: null };
         this.renderBrowse();
         try {
             const plan = await this.catalog.planSkillMigration(fileEntry);
@@ -122,9 +122,29 @@ export class AppShell {
         }
     }
 
+    async moveSkillBundle(destinationName, confirmedSourceName) {
+        const fileEntry = this.findFile(this.browseState?.selectedFileId);
+        const migrationPlan = this.browseState?.migrationPlan;
+        if (!fileEntry || migrationPlan?.status !== "ready" || migrationPlan.fileId !== fileEntry.id || this.browseState?.migrationMove?.status === "moving" || !isDestinationName(destinationName) || typeof confirmedSourceName !== "string" || !confirmedSourceName) return;
+        const normalizedName = destinationName.trim();
+        this.browseState = { ...this.browseState, migrationMove: { status: "moving", destinationName: normalizedName, confirmedSourceName } };
+        this.renderBrowse();
+        try {
+            const result = await this.catalog.moveSkillBundle(fileEntry, migrationPlan.plan.snapshotDigest, normalizedName, confirmedSourceName);
+            this.view.renderScanning();
+            const rescanState = await this.catalog.rescan();
+            this.browseState = { ...rescanState, selectedProviderId: "kiro", moveResult: result };
+            this.renderBrowse();
+        } catch (error) {
+            if (this.browseState?.selectedFileId !== fileEntry.id) return;
+            this.browseState = { ...this.browseState, migrationMove: { status: "error", code: moveErrorCode(error?.code), destinationName: normalizedName, confirmedSourceName } };
+            this.renderBrowse();
+        }
+    }
+
     clearSelection() {
         if (!this.browseState?.selectedFileId) return;
-        this.browseState = { ...this.browseState, selectedFileId: null, preview: null, migrationPlan: null, migrationCopy: null, copyResult: null };
+        this.browseState = { ...this.browseState, selectedFileId: null, preview: null, migrationPlan: null, migrationCopy: null, copyResult: null, migrationMove: null, moveResult: null };
         this.renderBrowse();
     }
 
@@ -160,6 +180,7 @@ export class AppShell {
             () => this.refresh(),
             (directoryNode) => this.toggleDirectory(directoryNode),
             (fileId, target) => this.resolveFileLink(fileId, target),
+            (destinationName, confirmedSourceName) => this.moveSkillBundle(destinationName, confirmedSourceName),
         );
     }
 }
@@ -208,6 +229,10 @@ function isDestinationName(destinationName) {
         && !reservedNames.has(normalizedName.toLowerCase())
         && !normalizedName.endsWith(".")
         && !/[\\/:<>"|?*\0\x00-\x1f]/.test(normalizedName);
+}
+
+function moveErrorCode(code) {
+    return ["stale_plan", "destination_conflict", "move_failed", "read_failed"].includes(code) ? code : "move_failed";
 }
 
 function copyErrorCode(code) {
