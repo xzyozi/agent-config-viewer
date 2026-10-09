@@ -5,16 +5,21 @@ export class BrowserView {
         this.document = document;
         this.status = document.querySelector("#status");
         this.catalog = document.querySelector("#catalog");
+        this.lastProviderId = null;
+        this.lastPreviewFileId = null;
+        this.lastCopyResult = null;
     }
 
     setStatus(message, tone = "default") {
         this.status.textContent = message;
         this.status.dataset.tone = tone;
+        this.status.setAttribute("role", tone === "error" ? "alert" : "status");
     }
 
+    // 再スキャン中は既存の表示を残し、進捗だけを示す（選択の文脈を失わせない）
     renderScanning() {
         this.setStatus("対応するProviderの設定構成を確認しています…", "progress");
-        this.catalog.replaceChildren();
+        this.catalog.setAttribute("aria-busy", "true");
     }
 
     renderError() {
@@ -29,7 +34,11 @@ export class BrowserView {
             this.renderMessage("表示対象のKiro構成がありません。", "empty");
             return;
         }
-        this.setStatus("対応するProviderの設定構成を表示しています。");
+        const uiState = this.captureUiState();
+        this.catalog.removeAttribute("aria-busy");
+        if (browseState.directoryLoadingKey) this.setStatus("フォルダを読込中です…", "progress");
+        else if (browseState.preview?.status === "reading") this.setStatus("本文を読込中です…", "progress");
+        else this.setStatus("対応するProviderの設定構成を表示しています。");
         const tabs = this.document.createElement("div");
         tabs.className = "provider-tabs";
         tabs.setAttribute("role", "tablist");
@@ -43,6 +52,66 @@ export class BrowserView {
         panel.setAttribute("aria-labelledby", `tab-${selected.providerId}`);
         this.renderProvider(panel, selected, browseState.preview, browseState.migrationPlan, browseState.migrationCopy, browseState.copyResult, onFileSelect, onSelectionClear, onMigrationPlan, onCopySkillBundle, onRefresh, onDirectoryToggle, onResolveLink, browseState.directoryLoadingKey, browseState.directoryErrorKey);
         this.catalog.replaceChildren(tabs, panel);
+        this.restoreUiState(uiState, browseState, selected.providerId);
+    }
+
+    // 再描画前にフォーカス・スクロール・入力値を退避する
+    captureUiState() {
+        const active = this.document.activeElement;
+        const destination = this.catalog.querySelector("#migration-copy-destination");
+        const confirmation = this.catalog.querySelector(".migration-copy-confirmation input");
+        const view = this.document.defaultView;
+        return {
+            focusKey: active && this.catalog.contains(active) ? active.dataset.focusKey ?? null : null,
+            selection: destination && active === destination ? [destination.selectionStart, destination.selectionEnd] : null,
+            explorerScroll: this.catalog.querySelector(".kiro-explorer")?.scrollTop ?? 0,
+            previewScroll: this.catalog.querySelector(".file-preview")?.scrollTop ?? 0,
+            windowScroll: [view?.scrollX ?? 0, view?.scrollY ?? 0],
+            destination: destination?.value ?? null,
+            confirmed: confirmation?.checked ?? false,
+        };
+    }
+
+    restoreUiState(uiState, browseState, providerId) {
+        const fileId = browseState.preview?.fileId ?? null;
+        const sameProvider = this.lastProviderId === providerId;
+        const sameFile = sameProvider && this.lastPreviewFileId === fileId;
+        const previousFileId = this.lastPreviewFileId;
+        const explorer = this.catalog.querySelector(".kiro-explorer");
+        const preview = this.catalog.querySelector(".file-preview");
+        if (sameProvider && explorer) explorer.scrollTop = uiState.explorerScroll;
+        if (sameFile && preview) preview.scrollTop = uiState.previewScroll;
+        if (sameFile && uiState.destination !== null) {
+            const destination = this.catalog.querySelector("#migration-copy-destination");
+            const confirmation = this.catalog.querySelector(".migration-copy-confirmation input");
+            if (destination && !destination.disabled) {
+                destination.value = uiState.destination;
+                if (confirmation) confirmation.checked = uiState.confirmed;
+                destination.dispatchEvent(new Event("input"));
+            }
+        }
+        const rovingKey = uiState.focusKey?.startsWith("dir:") || uiState.focusKey?.startsWith("file:") ? uiState.focusKey : null;
+        applyRovingTabindex(this.catalog.querySelector(".kiro-tree"), rovingKey ?? (fileId ? `file:${fileId}` : null));
+        this.restoreFocus(uiState, previousFileId);
+        const view = this.document.defaultView;
+        if (view && uiState.windowScroll[1] !== view.scrollY) view.scrollTo(uiState.windowScroll[0], uiState.windowScroll[1]);
+        const copyNotice = this.catalog.querySelector(".migration-copy-result");
+        if (copyNotice && browseState.copyResult !== this.lastCopyResult) copyNotice.focus();
+        else if (fileId && fileId !== this.lastPreviewFileId && view?.matchMedia?.("(max-width: 800px)").matches) {
+            preview?.scrollIntoView({ block: "start" });
+        }
+        this.lastProviderId = providerId;
+        this.lastPreviewFileId = fileId;
+        this.lastCopyResult = browseState.copyResult ?? null;
+    }
+
+    restoreFocus(uiState, previousFileId) {
+        if (!uiState.focusKey) return;
+        const find = (key) => this.catalog.querySelector(`[data-focus-key="${CSS.escape(key)}"]`);
+        const target = find(uiState.focusKey) ?? (previousFileId ? find(`file:${previousFileId}`) : null);
+        if (!target || target.disabled) return;
+        target.focus({ preventScroll: true });
+        if (uiState.selection && target.setSelectionRange) target.setSelectionRange(...uiState.selection);
     }
 
     createTab(result, selectedProviderId, onProviderSelect) {
@@ -51,6 +120,7 @@ export class BrowserView {
         tab.id = `tab-${result.providerId}`;
         tab.type = "button";
         tab.dataset.providerId = result.providerId;
+        tab.dataset.focusKey = `tab:${result.providerId}`;
         tab.setAttribute("role", "tab");
         tab.setAttribute("aria-controls", `panel-${result.providerId}`);
         tab.setAttribute("aria-selected", String(result.providerId === selectedProviderId));
@@ -75,13 +145,14 @@ export class BrowserView {
         const title = this.document.createElement("div");
         const eyebrow = this.document.createElement("p");
         eyebrow.className = "provider-eyebrow";
-        eyebrow.textContent = `${result.label} configuration`;
+        eyebrow.textContent = `${result.label} 設定`;
         const headingTitle = this.document.createElement("h2");
         headingTitle.textContent = result.label;
         title.append(eyebrow, headingTitle);
         const refreshButton = this.document.createElement("button");
         refreshButton.className = "refresh-button";
         refreshButton.type = "button";
+        refreshButton.dataset.focusKey = "action:refresh";
         refreshButton.textContent = "更新";
         refreshButton.title = "設定構成を再読み込み";
         refreshButton.addEventListener("click", () => onRefresh?.());
@@ -105,6 +176,7 @@ export class BrowserView {
         const element = this.document.createElement("p");
         element.className = className;
         element.textContent = message;
+        this.catalog.removeAttribute("aria-busy");
         this.catalog.replaceChildren(element);
     }
 }
@@ -116,10 +188,10 @@ function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect, 
     const header = document.createElement("div");
     header.className = "explorer-header";
     const title = document.createElement("h3");
-    title.textContent = "Explorer";
+    title.textContent = "エクスプローラー";
     const count = document.createElement("span");
     count.className = "explorer-count";
-    count.textContent = `${fileEntries.length} files`;
+    count.textContent = `${fileEntries.length} 件`;
     header.append(title, count);
     section.append(header);
     if (!tree) {
@@ -128,6 +200,10 @@ function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect, 
     }
     const rootList = document.createElement("ul");
     rootList.className = "kiro-tree";
+    rootList.setAttribute("role", "tree");
+    rootList.setAttribute("aria-label", "設定ファイル");
+    if (directoryLoadingKey) rootList.setAttribute("aria-busy", "true");
+    rootList.addEventListener("keydown", handleTreeKey);
     for (const child of tree.children ?? []) rootList.append(treeNode(document, child, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey));
     section.append(rootList);
     return section;
@@ -136,45 +212,54 @@ function treeSection(document, tree, fileEntries, selectedFileId, onFileSelect, 
 function treeNode(document, node, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey) {
     const item = document.createElement("li");
     item.className = `tree-node tree-node-${node.type}`;
+    item.setAttribute("role", "none");
     if (node.type === "directory") {
-        const details = document.createElement("details");
-        details.open = Boolean(node.open);
-        const summary = document.createElement("summary");
-        summary.className = "tree-directory";
-        summary.textContent = node.name;
-        summary.title = node.relativePath;
-        summary.addEventListener("click", (event) => {
-            event.preventDefault();
-            onDirectoryToggle(node);
-        });
         const directoryKey = directoryKeyOf(node);
-        if (directoryKey === directoryLoadingKey) appendDirectoryState(document, summary, "読込中…");
-        if (directoryKey === directoryErrorKey) appendDirectoryState(document, summary, "読込失敗");
-        details.append(summary);
+        const button = document.createElement("button");
+        button.className = "tree-directory";
+        button.type = "button";
+        button.setAttribute("role", "treeitem");
+        button.setAttribute("aria-expanded", String(Boolean(node.open)));
+        button.title = node.relativePath;
+        button.tabIndex = -1;
+        button.dataset.treeItem = "";
+        button.dataset.treeType = "directory";
+        button.dataset.focusKey = `dir:${directoryKey}`;
+        const name = document.createElement("span");
+        name.className = "tree-directory-name";
+        name.textContent = node.name;
+        button.append(name);
+        button.addEventListener("click", () => onDirectoryToggle(node));
+        if (directoryKey === directoryLoadingKey) appendDirectoryState(document, button, "読込中…");
+        if (directoryKey === directoryErrorKey) appendDirectoryState(document, button, "読込失敗");
+        item.append(button);
         const children = document.createElement("ul");
         children.className = "tree-children";
+        children.setAttribute("role", "group");
+        children.hidden = !node.open;
         for (const child of node.children ?? []) children.append(treeNode(document, child, selectedFileId, onFileSelect, onDirectoryToggle, directoryLoadingKey, directoryErrorKey));
-        details.append(children);
-        item.append(details);
+        item.append(children);
         return item;
     }
     const button = document.createElement("button");
     button.className = "file-entry";
     button.type = "button";
-    button.setAttribute("aria-label", node.relativePath);
+    button.setAttribute("role", "treeitem");
     button.title = node.relativePath;
+    button.tabIndex = -1;
     button.dataset.kind = node.kind;
-    if (node.fileId === selectedFileId) {
-        button.classList.add("is-selected");
-        button.setAttribute("aria-current", "true");
-    }
+    button.dataset.treeItem = "";
+    button.dataset.treeType = "file";
+    button.dataset.focusKey = `file:${node.fileId}`;
+    button.setAttribute("aria-selected", String(node.fileId === selectedFileId));
+    if (node.fileId === selectedFileId) button.classList.add("is-selected");
     if (!node.readable) button.classList.add("is-unreadable");
     const name = document.createElement("span");
     name.className = "tree-file-name";
     name.textContent = node.name;
     const kind = document.createElement("span");
     kind.className = "tree-file-kind";
-    kind.textContent = node.readable ? fileKindLabel(node.kind) : "info";
+    kind.textContent = node.readable ? fileKindLabel(node.kind) : "閲覧不可";
     button.append(name, kind);
     button.addEventListener("click", () => onFileSelect(node.fileId));
     item.append(button);
@@ -192,6 +277,48 @@ function directoryKeyOf(node) {
     return node?.directoryId ?? node?.relativePath ?? null;
 }
 
+// 展開されているノードだけを表示順に返す
+function visibleTreeItems(tree) {
+    return [...tree.querySelectorAll("[data-tree-item]")].filter((item) => !item.closest("[hidden]"));
+}
+
+// roving tabindex: ツリー内でTab停止位置を常に1つだけにする
+function applyRovingTabindex(tree, preferredKey) {
+    if (!tree) return;
+    const items = visibleTreeItems(tree);
+    const target = items.find((item) => item.dataset.focusKey === preferredKey) ?? items[0];
+    for (const item of items) item.tabIndex = item === target ? 0 : -1;
+}
+
+function moveTreeFocus(tree, target) {
+    applyRovingTabindex(tree, target.dataset.focusKey);
+    target.focus();
+}
+
+function handleTreeKey(event) {
+    const current = event.target.closest?.("[data-tree-item]");
+    if (!current) return;
+    const tree = event.currentTarget;
+    const items = visibleTreeItems(tree);
+    const index = items.indexOf(current);
+    const isDirectory = current.dataset.treeType === "directory";
+    const expanded = current.getAttribute("aria-expanded") === "true";
+    let target = null;
+    if (event.key === "ArrowDown") target = items[index + 1];
+    else if (event.key === "ArrowUp") target = items[index - 1];
+    else if (event.key === "Home") target = items[0];
+    else if (event.key === "End") target = items.at(-1);
+    else if (event.key === "ArrowRight" && isDirectory) {
+        if (!expanded) current.click();
+        else target = current.parentElement.querySelector(":scope > ul [data-tree-item]");
+    } else if (event.key === "ArrowLeft") {
+        if (isDirectory && expanded) current.click();
+        else target = current.closest("ul[role=group]")?.parentElement.querySelector(":scope > [data-tree-item]");
+    } else return;
+    event.preventDefault();
+    if (target) moveTreeFocus(tree, target);
+}
+
 function previewSection(document, preview, fileEntry, fileEntries, migrationPlan, migrationCopy, onSelectionClear, onMigrationPlan, onCopySkillBundle, onFileSelect, onResolveLink) {
     const section = document.createElement("section");
     section.className = "file-preview";
@@ -199,7 +326,7 @@ function previewSection(document, preview, fileEntry, fileEntries, migrationPlan
     header.className = "file-preview-header";
     const title = document.createElement("div");
     const heading = document.createElement("h3");
-    heading.textContent = fileEntry?.kind === "markdown" ? "Markdown Preview" : "Preview";
+    heading.textContent = fileEntry?.kind === "markdown" ? "Markdownプレビュー" : "プレビュー";
     title.append(heading);
     if (fileEntry) {
         const path = document.createElement("p");
@@ -213,6 +340,7 @@ function previewSection(document, preview, fileEntry, fileEntries, migrationPlan
         const planButton = document.createElement("button");
         planButton.className = "migration-plan-button";
         planButton.type = "button";
+        planButton.dataset.focusKey = "action:plan";
         planButton.disabled = migrationPlan?.status === "planning";
         planButton.textContent = migrationPlan?.status === "planning" ? "移行計画を解析中…" : "移行計画を表示";
         planButton.addEventListener("click", onMigrationPlan);
@@ -222,7 +350,9 @@ function previewSection(document, preview, fileEntry, fileEntries, migrationPlan
         const clearButton = document.createElement("button");
         clearButton.className = "clear-selection";
         clearButton.type = "button";
-        clearButton.textContent = "選択解除";
+        clearButton.dataset.focusKey = "action:clear";
+        clearButton.textContent = "閉じる";
+        clearButton.title = "プレビューを閉じて選択を解除";
         clearButton.addEventListener("click", onSelectionClear);
         actions.append(clearButton);
     }
@@ -234,7 +364,7 @@ function previewSection(document, preview, fileEntry, fileEntries, migrationPlan
     }
     section.append(fileInfo(document, fileEntry));
     if (!preview || preview.status === "reading") {
-        if (preview?.status === "reading") appendText(document, section, "本文を読込中です…", "empty");
+        if (preview?.status === "reading") appendText(document, section, "本文を読込中です…", "preview-loading");
         else appendText(document, section, "プレビューするファイルを選択してください。", "preview-placeholder");
         return section;
     }
@@ -287,7 +417,7 @@ function formatBytes(bytes) {
 }
 
 function fileKindLabel(kind) {
-    return { binary: "binary", css: "CSS", html: "HTML", javascript: "JavaScript", json: "JSON", markdown: "Markdown", python: "Python", sensitive: "protected", shell: "Shell", text: "Text", toml: "TOML", yaml: "YAML" }[kind] ?? "File";
+    return { binary: "バイナリ", css: "CSS", html: "HTML", javascript: "JavaScript", json: "JSON", markdown: "Markdown", python: "Python", sensitive: "保護", shell: "Shell", text: "Text", toml: "TOML", yaml: "YAML" }[kind] ?? "File";
 }
 
 function migrationPlanSection(document, migrationPlan, migrationCopy, onCopySkillBundle) {
@@ -330,12 +460,14 @@ function migrationCopyControls(document, migrationCopy, onCopySkillBundle) {
     destination.type = "text";
     destination.maxLength = 128;
     destination.autocomplete = "off";
+    destination.dataset.focusKey = "field:destination";
     destination.value = migrationCopy?.destinationName ?? "";
     destination.disabled = migrationCopy?.status === "copying";
     const confirmation = document.createElement("label");
     confirmation.className = "migration-copy-confirmation";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
+    checkbox.dataset.focusKey = "field:confirm";
     checkbox.checked = migrationCopy?.status === "copying";
     checkbox.disabled = migrationCopy?.status === "copying";
     const confirmationText = document.createElement("span");
@@ -343,6 +475,7 @@ function migrationCopyControls(document, migrationCopy, onCopySkillBundle) {
     confirmation.append(checkbox, confirmationText);
     const copyButton = document.createElement("button");
     copyButton.className = "migration-copy-button";
+    copyButton.dataset.focusKey = "action:copy";
     copyButton.type = "button";
     copyButton.textContent = migrationCopy?.status === "copying" ? "コピー中…" : "Skill bundleをコピー";
     const updateCopyButton = () => {
@@ -360,15 +493,18 @@ function migrationCopyControls(document, migrationCopy, onCopySkillBundle) {
 function copyResultSection(document, copyResult) {
     const result = document.createElement("p");
     result.className = "migration-copy-result";
-    result.setAttribute("role", "status");
+    result.tabIndex = -1;
     result.textContent = `Skill bundleをコピーしました: ${copyResult.bundlePath}`;
     return result;
 }
 
 function appendPlanEntries(document, section, heading, entries, formatter) {
     if (!entries.length) return;
-    const title = document.createElement("h5");
-    title.textContent = heading;
+    const group = document.createElement("details");
+    group.className = "migration-plan-group";
+    group.open = entries.length <= 20;
+    const title = document.createElement("summary");
+    title.textContent = `${heading}（${entries.length}件）`;
     const list = document.createElement("ul");
     list.className = "migration-plan-entries";
     for (const entry of entries) {
@@ -376,7 +512,8 @@ function appendPlanEntries(document, section, heading, entries, formatter) {
         item.textContent = formatter(entry);
         list.append(item);
     }
-    section.append(title, list);
+    group.append(title, list);
+    section.append(group);
 }
 
 function appendText(document, parent, text, className) {

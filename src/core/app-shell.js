@@ -10,12 +10,16 @@ export class AppShell {
     refresh() { return this.scan(); }
 
     async scan() {
+        if (this.scanning) return;
+        this.scanning = true;
         this.view.renderScanning();
         try {
             this.browseState = await this.catalog.discover();
             this.renderBrowse();
         } catch {
             this.view.renderError({ code: "unexpected" });
+        } finally {
+            this.scanning = false;
         }
     }
 
@@ -27,7 +31,11 @@ export class AppShell {
 
     async toggleDirectory(directoryNode) {
         const directoryKey = directoryKeyOf(directoryNode);
-        if (!directoryKey || this.browseState?.directoryLoadingKey) return;
+        if (!directoryKey) return;
+        if (this.browseState?.directoryLoadingKey) {
+            this.view.setStatus("別のフォルダを読込中です。完了後にもう一度お試しください。", "progress");
+            return;
+        }
         if (directoryNode.loaded) {
             this.browseState = { ...this.browseState, directoryErrorKey: null, providerResults: updateProviderTrees(this.browseState.providerResults, this.browseState.selectedProviderId, directoryKey, (node) => ({ ...node, open: !node.open })) };
             this.renderBrowse();
