@@ -45,6 +45,10 @@ jobs:
         shell: bash
         run: python -m py_compile server.py cli.py backend/kiro_catalog.py tests/browser/create-fixtures.py
 
+      - name: Run backend path safety tests
+        shell: bash
+        run: python -m unittest discover -s tests/backend -v
+
       - name: Run CLI with an empty user root
         shell: bash
         run: |
