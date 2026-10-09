@@ -1,24 +1,25 @@
 @echo off
-rem agent-config-viewer 起動スクリプト (Windows)
-rem リポジトリのルートで server.py を起動し、127.0.0.1:8765 で待受します。
-
 setlocal
 cd /d "%~dp0"
 
 where py >nul 2>nul
-if %errorlevel%==0 (
-    py server.py
-    goto :end
-)
+if not errorlevel 1 goto use_py
 
 where python >nul 2>nul
-if %errorlevel%==0 (
-    python server.py
-    goto :end
-)
+if not errorlevel 1 goto use_python
 
-echo Python が見つかりません。Python をインストールしてください。 1>&2
-exit /b 1
+echo Python was not found. 1>&2
+set "exit_code=1"
+goto finish
 
-:end
-endlocal
+:use_py
+py -3 server.py
+set "exit_code=%errorlevel%"
+goto finish
+
+:use_python
+python server.py
+set "exit_code=%errorlevel%"
+
+:finish
+endlocal & exit /b %exit_code%

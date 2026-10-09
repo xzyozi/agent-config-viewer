@@ -1,17 +1,28 @@
 # agent-config-viewer
 
-起動したユーザーのホームディレクトリにあるAIエージェント設定を、ローカルだけで一覧表示するアプリケーションです。外部送信、編集、保存は行いません。
+ユーザー環境にあるAIエージェント設定を、ローカルだけで確認する閲覧アプリケーションです。Providerとユーザーrootを切り替え、初期状態では折りたたまれたディレクトリツリーからファイルを選択できます。MarkdownはStackEditを参考にしたプレビューで表示します。
 
 ## 対象
 
-Providerごとにページ内タブを表示し、次の許可済みパスだけを走査します。
+次のユーザー側固定rootだけを走査します。プロジェクトrootは走査しません。ブラウザから任意のパスを指定することはできません。
 
-- Kiro: `.kiro/steering/**/*.md`、`.kiro/skills/**/SKILL.md`、`.kiro/knowledge/**/*.md`
-- Claude: ホーム直下の `CLAUDE.md`、`.claude/settings.json`、`rules/**/*.md`、`skills/**/SKILL.md`、`commands/**/*.md`、`agents/**/*.md`
-- Gemini: ホーム直下の `GEMINI.md`、`.gemini/settings.json`、`commands/**/*.toml`、`skills/**/SKILL.md`
-- Codex: `.codex/config.toml`、`.codex/*.config.toml`
+- Kiro: `~/.kiro`
+- Claude: `~/.claude`、`~/CLAUDE.md`
+- Gemini: `~/.gemini`、`~/GEMINI.md`
+- Codex: `~/.codex`、`~/AGENTS.md`
 
-Codexの認証情報、履歴、ログなどは一覧対象に含めません。
+各root配下の通常ファイルを再帰的に表示します。`.bak`、`.backup`、`.old`、`.orig`、`.swp`、`.swo`、`~`末尾、`.#[...]`形式のバックアップファイルは除外します。ログ、セッション、キャッシュ、一時ディレクトリも閲覧対象から除外します。
+
+- 初期カタログ生成では本文を読み込まず、拡張子とファイルサイズを中心に判定します。
+- バイナリファイルはファイル名、パス、種別、サイズだけを表示し、本文を読みません。
+- 秘密情報を含む可能性が高いファイル（`.env`、秘密鍵、token/password/secret/credentialを含む名前、既知の接続設定）は本文を表示せず、保護済みメタ情報だけを表示します。
+- UTF-8のテキストファイルは、選択時に2MiB上限内で本文を閲覧できます。
+- Markdownは見出し、段落、リスト、コードブロック、表、リンクなどを安全にレンダリングします。
+- JSONは整形したJSONビュー、TOML/YAML/JavaScript/Python/CSS/HTML/Shellは安全なソースコードビュー、その他のテキストはプレーンテキストビューで表示します。
+- ディレクトリを展開すると、その階層の子要素だけを追加取得します。初期カタログで全階層を解析しません。
+- 同じroot内の相対Markdownリンクは、未展開のディレクトリにあるファイルでもクリック時に安全に解決し、閲覧遷移として扱います。外部HTTPリンクは安全属性付きで開き、未許可のスキームはリンク化しません。
+
+通常の構成閲覧は読み取り専用です。既存のIssue #12で実装されたKiro Skill bundleの同一Provider内コピー機能は、選択したSkillから別途実行できます。
 
 ## ローカルでの起動
 
@@ -21,23 +32,47 @@ Pythonが利用できるWindows環境で、リポジトリのルートから次�
 py server.py
 ```
 
-Chromium系ブラウザで <http://127.0.0.1:8765/> を開いてください。サーバーは `127.0.0.1` だけで待受し、任意パスの読取・外部公開・外部通信を行いません。
+Chromium系ブラウザで <http://127.0.0.1:8765/> を開いてください。サーバーは`127.0.0.1`だけで待受し、外部通信を行いません。
 
 ## CLI
 
-フロントエンドを使わず、同じ許可済み範囲を確認できます。
+フロントエンドを使わず、対応Providerのユーザー設定一覧を確認できます。
 
 ```powershell
 # 全Providerの対象ファイルを一覧表示
 py cli.py list
 
-# Geminiだけを一覧表示
-py cli.py list --provider gemini
+# Kiroだけを一覧表示
+py cli.py list --provider kiro
 
 # 他ツール連携用のJSON出力
 py cli.py list --json
 ```
 
-CLIはファイル本文を読まず、許可済みの相対パスとProviderごとの検出結果だけを表示します。
+CLIはファイル本文を読まず、固定されたユーザーrootからの相対パスとProviderごとの検出結果だけを表示します。
 
-ブラウザでは一覧からファイルを選択すると、2MiB以下のUTF-8テキストをローカルだけでプレーンテキスト表示できます。Markdownも当面はHTMLとして解釈せず、テキストとして表示します。
+## テスト用root
+
+CIなどの隔離環境では、起動時の環境変数でユーザーrootを差し替えられます。通常利用では設定不要です。
+
+```powershell
+$env:AGENT_CONFIG_VIEWER_HOME_ROOT = "C:\fixtures\user"
+py server.py
+```
+
+## 安全境界
+
+- サーバーは固定されたユーザーProvider rootだけを走査し、実パスをブラウザへ渡しません。
+- カタログ作成時に不透明なFile IDを発行し、本文取得時にパス・リンク・通常ファイル・サイズ・バイナリ・UTF-8を再検証します。
+- シンボリックリンクとWindowsの再解析ポイントを走査・本文取得・Skill操作の対象外にします。
+- MarkdownのHTMLやスクリプトはDOM APIのテキストノードとして扱い、実行しません。
+- 本文はファイル選択時に遅延読込し、初期走査のI/Oを抑えます。
+
+## 検証
+
+```powershell
+py -3 -m py_compile server.py cli.py backend/kiro_catalog.py tests/browser/create-fixtures.py
+npm run test:browser
+```
+
+ブラウザE2Eは`.github/workflows/validate-local-viewer.yml`で、一時的なユーザーrootだけを使って実行します。

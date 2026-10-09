@@ -6,29 +6,69 @@ from pathlib import Path
 MAX_READABLE_BYTES = 2 * 1024 * 1024
 
 
-def write(home: Path, relative_path: str, content: str) -> None:
-    target = home / relative_path
+def write(root: Path, relative_path: str, content: str) -> None:
+    target = root / relative_path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
 
 
+def write_bytes(root: Path, relative_path: str, content: bytes) -> None:
+    target = root / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+
+
 def main() -> None:
-    home = Path(sys.argv[1])
-    write(home, ".kiro/steering/safe.md", '# Kiro safe\n<script id="unsafe">window.e2eExecuted = true</script>\n')
-    write(home, ".kiro/steering/ignored.txt", "not an allowed file\n")
-    write(home, ".kiro/skills/example/SKILL.md", "# Example skill\n[Guide](references/guide.md)\n#[[file:scripts/check.py]]\n`assets/icon.txt`\n[External](https://example.invalid)\n[Missing](references/missing.md)\n[Outside](../other.md)\n")
-    write(home, ".kiro/skills/example/references/guide.md", "# Guide\n")
-    write(home, ".kiro/skills/example/scripts/check.py", "print('check')\n")
-    write(home, ".kiro/skills/example/assets/icon.txt", "icon\n")
-    write(home, ".kiro/skills/existing/SKILL.md", "# Existing skill\n")
-    oversized = home / ".kiro/steering/oversized.md"
+    user_root = Path(sys.argv[1])
+    write(user_root, ".kiro/steering/safe.md", """# User Kiro safe
+
+<script id="unsafe">window.e2eExecuted = true</script>
+
+## Features
+
+- **Markdown** preview
+- `safe` text
+
+| Name | Value |
+| --- | --- |
+| Scope | User Kiro |
+
+[Skill](../skills/example/SKILL.md)
+[External](https://example.invalid)
+[Unsafe](javascript:alert(1))
+""")
+    write(user_root, ".kiro/steering/notes.txt", "plain text in the user Kiro tree\n")
+    write(user_root, ".kiro/settings.json", '{"name":"viewer","enabled":true}')
+    write(user_root, ".kiro/scripts/check.py", "print('user check')\n")
+    write(user_root, ".kiro/steering/safe.md.bak", "backup must appear nowhere\n")
+    write_bytes(user_root, ".kiro/steering/icon.bin", b"\x00\x01binary")
+    oversized = user_root / ".kiro/steering/oversized.md"
     oversized.parent.mkdir(parents=True, exist_ok=True)
     oversized.write_bytes(b"x" * (MAX_READABLE_BYTES + 1))
-    write(home, "CLAUDE.md", "# Claude global instruction\n")
-    write(home, ".claude/rules/example.md", "# Claude rule\n")
-    write(home, "GEMINI.md", "# Gemini global instruction\n")
-    write(home, ".gemini/commands/example.toml", 'name = "example"\n')
-    write(home, ".codex/config.toml", 'model = "test"\n')
+
+    write(user_root, ".kiro/steering/global.md", "# User Kiro steering\n")
+    write(user_root, ".kiro/knowledge/guide.md", "# User Kiro knowledge\n")
+    write(user_root, ".kiro/skills/example/SKILL.md", """# Example skill
+[Guide](references/guide.md)
+#[[file:scripts/check.py]]
+`assets/icon.txt`
+[External](https://example.invalid)
+[Missing](references/missing.md)
+[Outside](../other.md)
+""")
+    write(user_root, ".kiro/skills/example/references/guide.md", "# Guide\n")
+    write(user_root, ".kiro/skills/example/scripts/check.py", "print('check')\n")
+    write(user_root, ".kiro/skills/example/assets/icon.txt", "icon\n")
+    write(user_root, ".kiro/skills/existing/SKILL.md", "# Existing skill\n")
+    write(user_root, ".kiro/logs/runtime.log", "runtime data is not a viewer target\n")
+    write(user_root, ".kiro/db_config.ini", "password=not-for-display\n")
+    write(user_root, "CLAUDE.md", "# User Claude instruction\n")
+    write(user_root, ".claude/commands/user.md", "# User Claude command\n")
+    write(user_root, ".claude/rules/example.md", "# User Claude rule\n")
+    write(user_root, "GEMINI.md", "# User Gemini instruction\n")
+    write(user_root, ".gemini/commands/example.toml", 'name = "user-example"\n')
+    write(user_root, ".gemini/skills/user/SKILL.md", "# User Gemini skill\n")
+    write(user_root, ".codex/config.toml", 'model = "user-test"\n')
 
 
 if __name__ == "__main__":

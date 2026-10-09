@@ -7,20 +7,73 @@ export class AppShell {
 
     start() { this.scan(); }
 
+    refresh() { return this.scan(); }
+
     async scan() {
+        if (this.scanning) return;
+        this.scanning = true;
         this.view.renderScanning();
         try {
             this.browseState = await this.catalog.discover();
             this.renderBrowse();
         } catch {
             this.view.renderError({ code: "unexpected" });
+        } finally {
+            this.scanning = false;
         }
     }
 
     selectProvider(providerId) {
         if (!this.browseState?.providerResults.some((result) => result.providerId === providerId)) return;
-        this.browseState = { ...this.browseState, selectedProviderId: providerId, selectedFileId: null, preview: null, migrationPlan: null, migrationCopy: null, copyResult: null };
+        this.browseState = { ...this.browseState, selectedProviderId: providerId, selectedFileId: null, preview: null, migrationPlan: null, migrationCopy: null, copyResult: null, directoryLoadingKey: null, directoryErrorKey: null };
         this.renderBrowse();
+    }
+
+    async toggleDirectory(directoryNode) {
+        const directoryKey = directoryKeyOf(directoryNode);
+        if (!directoryKey) return;
+        if (this.browseState?.directoryLoadingKey) {
+            this.view.setStatus("別のフォルダを読込中です。完了後にもう一度お試しください。", "progress");
+            return;
+        }
+        if (directoryNode.loaded) {
+            this.browseState = { ...this.browseState, directoryErrorKey: null, providerResults: updateProviderTrees(this.browseState.providerResults, this.browseState.selectedProviderId, directoryKey, (node) => ({ ...node, open: !node.open })) };
+            this.renderBrowse();
+            return;
+        }
+        if (!directoryNode.directoryId) return;
+        this.browseState = { ...this.browseState, directoryLoadingKey: directoryKey, directoryErrorKey: null };
+        this.renderBrowse();
+        try {
+            const result = await this.catalog.listDirectory(directoryNode.directoryId);
+            if (!this.findDirectory(directoryKey)) {
+                this.browseState = { ...this.browseState, directoryLoadingKey: null };
+                this.renderBrowse();
+                return;
+            }
+            const providerResults = updateProviderTrees(this.browseState.providerResults, this.browseState.selectedProviderId, directoryKey, (node) => ({ ...node, children: result.children, loaded: true, open: true }));
+            const updatedResults = providerResults.map((providerResult) => providerResult.providerId === this.browseState.selectedProviderId
+                ? { ...providerResult, fileEntries: [...providerResult.fileEntries, ...result.fileEntries] }
+                : providerResult);
+            this.browseState = { ...this.browseState, providerResults: updatedResults, directoryLoadingKey: null, directoryErrorKey: null };
+            this.renderBrowse();
+        } catch {
+            this.browseState = { ...this.browseState, directoryLoadingKey: null, directoryErrorKey: directoryKey };
+            this.renderBrowse();
+        }
+    }
+
+    async resolveFileLink(sourceFileId, target) {
+        const sourceFile = this.findFile(sourceFileId);
+        if (!sourceFile) return null;
+        try {
+            const fileEntry = await this.catalog.resolveFileLink(sourceFileId, target);
+            if (fileEntry.providerId !== this.browseState?.selectedProviderId) return null;
+            this.browseState = { ...this.browseState, providerResults: mergeFileEntry(this.browseState.providerResults, fileEntry) };
+            return fileEntry;
+        } catch {
+            return null;
+        }
     }
 
     async selectFile(fileId) {
@@ -91,6 +144,11 @@ export class AppShell {
         return this.browseState?.providerResults.flatMap((result) => result.fileEntries).find((entry) => entry.id === fileId);
     }
 
+    findDirectory(directoryKey) {
+        const selected = this.browseState?.providerResults.find((result) => result.providerId === this.browseState?.selectedProviderId);
+        return findDirectoryInTree(selected?.tree, directoryKey);
+    }
+
     renderBrowse() {
         this.view.renderBrowse(
             this.browseState,
@@ -99,8 +157,44 @@ export class AppShell {
             () => this.clearSelection(),
             () => this.planSkillMigration(),
             (destinationName, confirmed) => this.copySkillBundle(destinationName, confirmed),
+            () => this.refresh(),
+            (directoryNode) => this.toggleDirectory(directoryNode),
+            (fileId, target) => this.resolveFileLink(fileId, target),
         );
     }
+}
+
+function directoryKeyOf(node) {
+    return node?.directoryId ?? node?.relativePath ?? null;
+}
+
+function findDirectoryInTree(node, directoryKey) {
+    if (!node) return null;
+    if (node.type === "directory" && directoryKeyOf(node) === directoryKey) return node;
+    for (const child of node.children ?? []) {
+        const found = findDirectoryInTree(child, directoryKey);
+        if (found) return found;
+    }
+    return null;
+}
+
+function updateProviderTrees(providerResults, providerId, directoryKey, transform) {
+    return providerResults.map((providerResult) => providerResult.providerId === providerId
+        ? { ...providerResult, tree: updateDirectoryInTree(providerResult.tree, directoryKey, transform) }
+        : providerResult);
+}
+
+function updateDirectoryInTree(node, directoryKey, transform) {
+    if (!node) return node;
+    if (node.type === "directory" && directoryKeyOf(node) === directoryKey) return transform(node);
+    if (!node.children?.length) return node;
+    return { ...node, children: node.children.map((child) => updateDirectoryInTree(child, directoryKey, transform)) };
+}
+
+function mergeFileEntry(providerResults, fileEntry) {
+    return providerResults.map((providerResult) => providerResult.providerId === fileEntry.providerId && !providerResult.fileEntries.some((entry) => entry.id === fileEntry.id)
+        ? { ...providerResult, fileEntries: [...providerResult.fileEntries, fileEntry] }
+        : providerResult);
 }
 
 function isDestinationName(destinationName) {
