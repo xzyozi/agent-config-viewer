@@ -527,7 +527,7 @@ function providerMessage(status, label) { return { not_found: `${label}の設定
 function isKiroSkill(fileEntry) {
     if (!fileEntry?.readable || fileEntry?.providerId !== "kiro") return false;
     const parts = fileEntry.relativePath.toLowerCase().split("/");
-    const rootIndex = parts[0] === "~" && parts[1] === ".kiro" ? 2 : 0;
+    const rootIndex = parts[0] === "~" ? 1 : 0;
     return parts.length === rootIndex + 4 && parts[rootIndex] === ".kiro" && parts[rootIndex + 1] === "skills" && parts[rootIndex + 3] === "skill.md";
 }
 function previewMessage(code) { return { binary: "バイナリファイルの本文は表示せず、ファイル情報だけを表示します。", sensitive: "機密性のある設定ファイルの本文は表示せず、ファイル情報だけを表示します。", too_large: "ファイルが2MiBを超えるため、本文を表示しません。", permission_denied: "ファイルの読取が許可されませんでした。", unsupported_kind: "この形式の本文は表示できません。", read_failed: "ファイル本文を読み取れませんでした。" }[code] ?? "ファイル本文を読み取れませんでした。"; }
